@@ -3,7 +3,7 @@
 The personal branch starts from upstream `562064ab2aa605cb7ae7b7a5200f37a6a333de07`.
 
 - **48 V drivetrain.** Settings → Profile has a per-car Auto, On or Off choice. Auto requires explicit mild-hybrid vehicle metadata. The phone, widget, Android Auto and Wear use the existing fuel display path. The 48 V record supplies neither plug-in charging data nor an estimate of electric distance. The car-report trip fallback still records odometer movement.
-- **Fuel and CSV.** Explicit API units are converted separately for volume and rate. Ambiguous API values are omitted on the 48 V path. The previous guesses for other powertrains are labelled as estimates and carry that provenance through CSV. The three optional fuel columns preserve missing values, zero and the distinction between liters and l/100 km. Existing LionFlow exports still import.
+- **Fuel and CSV.** The PSA B2C trip schema defines totals in liters and kWh, and averages in cL/100 km and Wh/100 km. Recognized explicit units override those defaults. The three optional fuel columns preserve missing values, zero and the distinction between liters and l/100 km. Existing LionFlow exports still import with their original estimate flag.
 - **Bluetooth.** The paired-device picker has a bounded scrolling list. Device identity still uses the address, including where display names match. The Compose test from PR #7 travels with the feature branch.
 - **Trips.** Upstream's week-by-week loader and server next links serve phone, Android Auto and Wear. The existing car-report fallback keeps its time window. CSV rows are matched by ID or by an unambiguous match on both minute timestamps and rounded distance before fuel data is added to a reported trip.
 

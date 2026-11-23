@@ -9,36 +9,82 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TripFuelTest {
-    private fun apiTrip(fuel: String, mildHybrid: Boolean = true): Trip = Trip.parse(
-        JSONObject().put("id", "test").put("distance", 20.0)
-            .put("energyConsumptions", JSONArray().put(JSONObject(fuel))
-                .put(JSONObject("""{"type":"Electric","consumption":420,"avgConsumption":2000}"""))),
-        mildHybrid,
-    )
+    private val fuel = """{"type":"Fuel","consumption":1.2,"avgConsumption":600}"""
+    private val electric = """{"type":"Electric","consumption":3.8,"avgConsumption":19000}"""
 
-    @Test fun explicitFuelUnitsStaySeparate() {
-        val trip = apiTrip("""{"type":"Fuel","consumption":1200,"consumptionUnit":"mL",
-            "avgConsumption":6.0,"avgConsumptionUnit":"L/100 km"}""")
+    private fun apiTrip(vararg energy: String, mildHybrid: Boolean = false, distance: Double = 20.0): Trip =
+        Trip.parse(JSONObject().put("id", "test").put("distance", distance)
+            .put("energyConsumptions", JSONArray(energy.map(::JSONObject))), mildHybrid)
+
+    @Test fun usesDocumentedFuelUnits() {
+        val trip = apiTrip(fuel)
+        assertEquals(1.2, trip.liters)
+        assertEquals(6.0, trip.avgLPer100)
+        assertNull(trip.kwh)
+        assertFalse(trip.fuelUnitsEstimated)
+        val low = apiTrip("""{"type":"Fuel","consumption":0.03,"avgConsumption":15}""")
+        assertEquals(0.03, low.liters)
+        assertEquals(0.15, low.avgLPer100)
+        assertFalse(low.fuelUnitsEstimated)
+    }
+
+    @Test fun batteryElectricUsesKwhForTotalAndWhForAverage() {
+        val trip = apiTrip(electric)
+        assertEquals(3.8, trip.kwh)
+        assertEquals(19.0, trip.avgKwhPer100)
+        assertNull(trip.liters)
+        assertNull(trip.avgLPer100)
+    }
+
+    @Test fun plugInHybridKeepsBothEnergyTypes() {
+        val trip = apiTrip(fuel, electric)
+        assertEquals(1.2, trip.liters)
+        assertEquals(6.0, trip.avgLPer100)
+        assertEquals(3.8, trip.kwh)
+        assertEquals(19.0, trip.avgKwhPer100)
+        assertFalse(trip.fuelUnitsEstimated)
+    }
+
+    @Test fun mildHybridKeepsFuelAndOmitsElectric() {
+        val trip = apiTrip(fuel, electric, mildHybrid = true)
         assertEquals(1.2, trip.liters)
         assertEquals(6.0, trip.avgLPer100)
         assertNull(trip.kwh)
         assertNull(trip.avgKwhPer100)
+        assertFalse(trip.fuelUnitsEstimated)
+    }
+
+    @Test fun supportedExplicitUnitsOverrideSchemaDefaults() {
+        val trip = apiTrip("""{"type":"Fuel","consumption":1200,"consumptionUnit":"mL",
+            "avgConsumption":6.4,"avgConsumptionUnit":"L/100 km"}""",
+            """{"type":"Electric","consumption":3800,"unit":"Wh","avgConsumption":19,"avgConsumptionUnit":"kWh/100 km"}""")
+        assertEquals(1.2, trip.liters)
+        assertEquals(6.4, trip.avgLPer100)
+        assertEquals(3.8, trip.kwh)
+        assertEquals(19.0, trip.avgKwhPer100)
         assertFalse(trip.fuelUnitsEstimated)
         val rateOnly = apiTrip("""{"type":"Fuel","avgConsumption":20,"avgConsumptionUnit":"km/L"}""")
         assertNull(rateOnly.liters)
         assertEquals(5.0, rateOnly.avgLPer100)
     }
 
-    @Test fun ambiguousFuelUnitsAreOmittedForMildHybrids() {
-        val payload = """{"type":"Fuel","consumption":1200,"avgConsumption":6}"""
-        val mild = apiTrip(payload)
-        assertNull(mild.liters)
-        assertNull(mild.avgLPer100)
-        val previous = apiTrip(payload, mildHybrid = false)
-        assertEquals(1.2, previous.liters)
-        assertTrue(previous.fuelUnitsEstimated)
-        assertEquals(0.42, previous.kwh)
+    @Test fun rejectsInvalidValuesAndKeepsZero() {
+        val missing = apiTrip("""{"type":"Fuel","consumption":null,"avgConsumption":-1}""",
+            """{"type":"Electric","consumption":"Infinity","avgConsumption":"bogus"}""")
+        assertNull(missing.liters)
+        assertNull(missing.avgLPer100)
+        assertNull(missing.kwh)
+        assertNull(missing.avgKwhPer100)
+        val zero = apiTrip("""{"type":"Fuel","consumption":0,"avgConsumption":0}""",
+            """{"type":"Electric","consumption":0,"avgConsumption":0}""", distance = 0.0)
+        assertEquals(0.0, zero.liters)
+        assertEquals(0.0, zero.avgLPer100)
+        assertEquals(0.0, zero.kwh)
+        assertEquals(0.0, zero.avgKwhPer100)
         assertNull(apiTrip("""{"type":"Fuel","consumption":2,"unit":"unknown"}""").liters)
+        assertNull(apiTrip("""{"type":"Fuel","avgConsumption":0,"avgConsumptionUnit":"km/L"}""").avgLPer100)
+        assertNull(apiTrip("""{"type":"Fuel","consumption":1.2}""", distance = 0.0).avgLPer100)
+        assertEquals(6.0, apiTrip("""{"type":"Fuel","consumption":1.2}""").avgLPer100)
     }
 
     @Test fun csvRetainsFuelValuesZeroAndProvenance() {

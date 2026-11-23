@@ -200,68 +200,62 @@ data class Trip(
             return if (totalKm > 0) totalLiters / totalKm * 100 to estimated else null
         }
 
-        /** Peugeot doesn't document fuel units; pick the scale that gives a sane l/100 km (2–30). */
-        private fun litersOf(raw: Double?, km: Double): Double? {
-            if (raw == null || !raw.isFinite() || raw <= 0 || !km.isFinite() || km < 0.5) return null
-            return listOf(1.0, 0.01, 0.001).map { raw * it }.firstOrNull { it / km * 100 in 2.0..30.0 }
-        }
-        private fun per100Of(raw: Double?): Double? {
-            if (raw == null || !raw.isFinite() || raw <= 0) return null
-            return listOf(1.0, 0.1, 0.01, 0.001).map { raw * it }.firstOrNull { it in 2.0..30.0 }
-        }
+        private fun unit(unit: String?): String? =
+            unit?.lowercase(Locale.ROOT)?.filterNot(Char::isWhitespace)?.ifEmpty { null }
 
-        private fun fuelUnit(unit: String?): String? = unit?.lowercase(Locale.ROOT)?.filterNot(Char::isWhitespace)
-
-        private fun fuelTotal(value: Double?, unit: String?): Double? {
-            val amount = value?.takeIf { it.isFinite() && it >= 0 } ?: return null
-            return when (fuelUnit(unit)) {
-                "l", "litre", "liter", "litres", "liters" -> amount
-                "cl" -> amount / 100
-                "ml" -> amount / 1000
-                else -> null
-            }
-        }
-
-        private fun fuelRate(value: Double?, unit: String?): Double? {
-            val rate = value?.takeIf { it.isFinite() && it >= 0 } ?: return null
-            return when (fuelUnit(unit)) {
-                "l/100km" -> rate
-                "km/l" -> if (rate > 0) (100 / rate).takeIf(Double::isFinite) else null
-                else -> null
-            }
-        }
+        private fun JSONObject.nonNegative(key: String): Double? = num(key)?.takeIf { it.isFinite() && it >= 0 }
 
         fun parse(t: JSONObject, mildHybrid: Boolean = false): Trip {
-            val electric = t.optJSONArray("energyConsumptions")?.objects()?.firstOrNull { it.optString("type") == "Electric" }
-            val fuel = t.optJSONArray("energyConsumptions")?.objects()?.firstOrNull { it.optString("type") == "Fuel" }
-            val km = t.num("distance")?.takeIf { it.isFinite() && it >= 0 } ?: 0.0
-            val total = fuel?.num("consumption")
-            val totalUnit = fuel?.str("consumptionUnit") ?: fuel?.str("unit")
-            val average = fuel?.num("avgConsumption")
-            val averageUnit = fuel?.str("avgConsumptionUnit")
-            val reportedLiters = fuelTotal(total, totalUnit)
-            val reportedRate = fuelRate(average, averageUnit)
-            // Keep the existing estimate for older vehicles. For the 48 V path, omit ambiguous units.
-            val estimatedLiters = if (!mildHybrid && totalUnit == null) litersOf(total, km) else null
-            val liters = reportedLiters ?: estimatedLiters
-            val estimatedRate = if (!mildHybrid && averageUnit == null && liters == null && reportedRate == null) {
-                per100Of(average)
-            } else null
-            val rate = reportedRate ?: liters?.takeIf { km > 0 }?.let { it / km * 100 } ?: estimatedRate
+            val energy = t.optJSONArray("energyConsumptions")?.objects().orEmpty()
+            val electric = energy.firstOrNull { !mildHybrid && it.optString("type") == "Electric" }
+            val fuel = energy.firstOrNull { it.optString("type") == "Fuel" }
+            val km = t.nonNegative("distance") ?: 0.0
+
+            // PSA Connected Car B2C 4.17.2 EnergyConsumption defines units by type and field.
+            val liters = fuel?.nonNegative("consumption")?.let { value ->
+                when (unit(fuel.str("consumptionUnit")) ?: unit(fuel.str("unit"))) {
+                    null, "l", "litre", "liter", "litres", "liters" -> value
+                    "cl" -> value / 100
+                    "ml" -> value / 1000
+                    else -> null
+                }
+            }
+            val fuelRate = fuel?.nonNegative("avgConsumption")?.let { value ->
+                when (unit(fuel.str("avgConsumptionUnit"))) {
+                    null, "cl/100km" -> value / 100
+                    "l/100km" -> value
+                    "ml/100km" -> value / 1000
+                    "km/l" -> if (value > 0) (100 / value).takeIf(Double::isFinite) else null
+                    else -> null
+                }
+            }
+            val kwh = electric?.nonNegative("consumption")?.let { value ->
+                when (unit(electric.str("consumptionUnit")) ?: unit(electric.str("unit"))) {
+                    null, "kwh" -> value
+                    "wh" -> value / 1000
+                    else -> null
+                }
+            }
+            val electricRate = electric?.nonNegative("avgConsumption")?.let { value ->
+                when (unit(electric.str("avgConsumptionUnit"))) {
+                    null, "wh/100km" -> value / 1000
+                    "kwh/100km" -> value
+                    else -> null
+                }
+            }
             return Trip(
                 id = t.optString("id"),
                 startMillis = VehicleStatus.parseIso(t.str("startedAt") ?: t.str("createdAt")),
                 endMillis = VehicleStatus.parseIso(t.str("stoppedAt")),
                 distanceKm = km,
                 durationSec = t.num("duration"),
-                kwh = if (mildHybrid) null else electric?.num("consumption")?.let { it / 1000.0 },
-                avgKwhPer100 = if (mildHybrid) null else electric?.num("avgConsumption")?.let { it / 1000.0 },
+                kwh = kwh,
+                avgKwhPer100 = electricRate,
                 // Work it out from distance and time: the car's own "avgSpeed" is in m/s on some models and km/h on others.
                 avgSpeedKmh = t.num("duration")?.takeIf { it >= 60 && km > 0 }?.let { km / (it / 3600.0) }
                     ?: t.optJSONObject("kinetic")?.num("avgSpeed")?.let { v -> if (km > 0) v else null },
                 liters = liters,
-                avgLPer100 = rate,
-                fuelUnitsEstimated = estimatedLiters != null || estimatedRate != null,
+                avgLPer100 = fuelRate ?: liters?.takeIf { km > 0 }?.let { (it / km * 100).takeIf(Double::isFinite) },
             )
         }
     }
