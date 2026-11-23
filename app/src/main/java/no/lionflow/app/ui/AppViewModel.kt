@@ -10,6 +10,7 @@ import android.location.LocationManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -325,9 +326,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (v.vin == _ui.value.vehicle?.vin) settings.value.carName else settings.nameFor(v.vin) ?: (no.lionflow.app.model.Brands.current.display + " …" + v.vin.takeLast(4))
 
     fun setMildHybridOverride(enabled: Boolean?) {
+        val vehicle = _ui.value.vehicle ?: return
+        settings.setMildHybridOverride(vehicle.vin, enabled)
+        updateMildHybridStatus()
+    }
+
+    private fun updateMildHybridStatus() {
         val current = _ui.value
         val vehicle = current.vehicle ?: return
-        settings.setMildHybridOverride(vehicle.vin, enabled)
         val previous = current.status ?: return
         val status = api.parseStatus(vehicle, previous.raw).copy(
             kmToService = previous.kmToService,
@@ -349,7 +355,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun reloadVehicles() = viewModelScope.launch {
         try {
             val all = api.vehicles()
-            _ui.update { it.copy(vehicles = all, vehicle = api.pick(all)) }
+            val vehicle = api.pick(all)
+            val previous = _ui.value.vehicle
+            _ui.update { it.copy(vehicles = all, vehicle = vehicle) }
+            if (vehicle != null && previous != null && previous.vin == vehicle.vin &&
+                api.isMildHybrid(vehicle) != api.isMildHybrid(previous)) updateMildHybridStatus()
         } catch (e: Exception) { toast("Couldn't load your cars — ${no.lionflow.app.api.Http.describe(e)}") }
     }
     fun clearMessage() = _ui.update { it.copy(message = null) }
@@ -568,6 +578,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var serverRetries = 0
+    private val brandingAttempts = HashSet<Pair<String, String>>()
+
+    private suspend fun refreshVehicleBranding(vehicle: Vehicle): Vehicle {
+        if (!vehicle.needsBranding || settings.mildHybridOverride(vehicle.vin) != null ||
+            !brandingAttempts.add(api.profile to vehicle.vin)) return vehicle
+        val all = try {
+            api.vehicles()
+        } catch (e: AuthExpiredException) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return vehicle
+        }
+        _ui.update { it.copy(vehicles = all) }
+        return all.firstOrNull { it.vin == vehicle.vin } ?: vehicle
+    }
 
     fun refresh() {
         if (_ui.value.refreshing) return
@@ -579,7 +606,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _ui.update { it.copy(refreshing = true) }
             try {
-                val v = _ui.value.vehicle ?: api.currentVehicle() ?: throw IllegalStateException("No car on this account")
+                val cached = _ui.value.vehicle ?: api.currentVehicle() ?: throw IllegalStateException("No car on this account")
+                val v = refreshVehicleBranding(cached)
                 var missing = false
                 val raw = try { api.status(v) } catch (e: no.lionflow.app.api.ApiException) {
                     if (e.code != 404 && !(e.message ?: "").contains("40400")) throw e

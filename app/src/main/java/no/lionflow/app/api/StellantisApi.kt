@@ -71,7 +71,12 @@ data class Vehicle(
     val pictureUrl: String?,
     val maintenanceHref: String?,
     val modelLabel: String? = null,
+    private val brandingLoaded: Boolean = false,
 ) {
+    internal val needsBranding: Boolean
+        get() = !brandingLoaded && modelLabel.isNullOrBlank() &&
+            brand.equals("Peugeot", ignoreCase = true) && motorization.equals("Hybrid", ignoreCase = true)
+
     val reportsMildHybrid: Boolean
         get() {
             val powertrain = motorization.filter(Char::isLetterOrDigit).lowercase(Locale.ROOT)
@@ -85,6 +90,7 @@ data class Vehicle(
         put("id", id); put("vin", vin); put("motorization", motorization); put("brand", brand)
         put("picture", pictureUrl ?: ""); put("maintenance", maintenanceHref ?: "")
         modelLabel?.let { put("modelLabel", it) }
+        if (brandingLoaded) put("brandingLoaded", true)
     }
 
     companion object {
@@ -97,6 +103,7 @@ data class Vehicle(
             pictureUrl = j.optString("picture").ifEmpty { null },
             maintenanceHref = j.optString("maintenance").ifEmpty { null },
             modelLabel = j.str("modelLabel"),
+            brandingLoaded = j.optBoolean("brandingLoaded"),
         )
 
         internal fun fromApi(j: JSONObject, defaultBrand: String): Vehicle {
@@ -110,6 +117,7 @@ data class Vehicle(
                 pictureUrl = j.optJSONArray("pictures")?.optString(0)?.ifEmpty { null },
                 maintenanceHref = j.obj("_links", "maintenance")?.str("href"),
                 modelLabel = branding?.str("label")?.ifBlank { null } ?: j.str("label"),
+                brandingLoaded = true,
             )
         }
     }

@@ -71,6 +71,7 @@ class MildHybridStatusTest {
         assertTrue(vehicle.copy(motorization = "MHEV").reportsMildHybrid)
         assertTrue(vehicle.copy(motorization = "48 V Mild hybrid").reportsMildHybrid)
         assertFalse(Vehicle.fromJson(vehicle.toJson()).reportsMildHybrid)
+        assertTrue(Vehicle.fromJson(vehicle.toJson()).needsBranding)
     }
 
     @Test fun readsAndCachesTheSpecificPeugeotHybridVersion() {
@@ -89,5 +90,14 @@ class MildHybridStatusTest {
             "id":"vehicle","vin":"synthetic","motorization":"Hybrid","brand":"Peugeot",
             "label":"208 Hybrid 100 eDCS6"
         }"""), "Other").reportsMildHybrid)
+    }
+
+    @Test fun aRefreshedVehicleWithoutBrandingKeepsManualFallback() {
+        val vehicle = Vehicle.fromApi(JSONObject("""{
+            "id":"vehicle","vin":"synthetic","motorization":"Hybrid","brand":"Peugeot"
+        }"""), "Other")
+        val cached = Vehicle.fromJson(vehicle.toJson())
+        assertFalse(cached.reportsMildHybrid)
+        assertFalse(cached.needsBranding)
     }
 }
