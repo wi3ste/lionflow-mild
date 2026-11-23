@@ -83,14 +83,16 @@ object CarTrips {
     /** Use car reports only where the server or a CSV has no trip at that time. */
     internal fun withFallback(primary: List<Trip>, own: List<Trip>): List<Trip> {
         val slack = 20 * 60_000L
+        val ids = primary.mapTo(HashSet()) { it.id }
         return primary + own.filter { trip ->
             val start = trip.startMillis ?: return@filter false
             val end = trip.endMillis ?: start
             primary.none { known ->
+                if (known.distanceKm == 0.0) return@none false
                 val knownStart = known.startMillis ?: return@none false
                 val knownEnd = known.endMillis ?: knownStart
                 knownStart <= end + slack && knownEnd >= start - slack
-            }
+            } && ids.add(trip.id)
         }
     }
 

@@ -5,11 +5,11 @@ The personal branch starts from upstream `562064ab2aa605cb7ae7b7a5200f37a6a333de
 - **48 V drivetrain.** Settings → Profile has a per-car Auto, On or Off choice. Auto accepts explicit mild-hybrid motorization or Peugeot Hybrid metadata that names the 208 Hybrid 100 e-DCS6. The phone, widget, Android Auto and Wear use the existing fuel display path. The 48 V record supplies neither plug-in charging data nor an estimate of electric distance. The car-report trip fallback still records odometer movement.
 - **Fuel and CSV.** The PSA B2C trip schema defines totals in liters and kWh, and averages in cL/100 km and Wh/100 km. Recognized explicit units override those defaults. The three optional fuel columns preserve missing values, zero and the distinction between liters and l/100 km. Existing LionFlow exports still import with their original estimate flag.
 - **Bluetooth.** The paired-device picker has a bounded scrolling list. Device identity still uses the address, including where display names match. The Compose test from PR #7 travels with the feature branch.
-- **Trips.** Upstream's week-by-week loader and server next links serve phone, Android Auto and Wear. The existing car-report fallback keeps its time window. CSV rows are matched by ID or by an unambiguous match on both minute timestamps and rounded distance before fuel data is added to a reported trip.
+- **Trips.** The week-by-week UTC loader follows server next links, includes zero-distance trips and keeps one server row per ID. Home and Trips use the same seven local calendar days, and Trips loads list rows as they scroll into view. The existing car-report fallback keeps its time window. CSV rows are matched by ID or by an unambiguous match on both minute timestamps and rounded distance before fuel data is added to a reported trip.
 
 ## Historical branches
 
-PR #6's alternative loader is superseded. The archived `fix/trip-loading` branch still has the offset and fractional timestamp tests, fallback IDs, and removal of the 50-trip display limit. These are independent follow-ups. `fix/trip-fuel-csv` keeps the original CSV round-trip and old-format tests. The new branch reuses the fuel columns and restores data through the current trip model. `fix/mild-hybrid` keeps the broader original implementation and tests. Sharing the upstream fuel display path replaces most of its per-screen capability changes.
+PR #6's alternative loader is superseded. This branch adapts offset and fractional timestamp tests, stable fallback IDs and the page-cursor regression test from the archived trip work. The current CSV tests cover round-trip and old-format exports, and the status tests cover the mild-hybrid fuel display path.
 
 ## Vehicle checks
 

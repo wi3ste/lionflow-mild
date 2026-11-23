@@ -1,7 +1,5 @@
 package no.lionflow.app.api
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import android.content.Context
 import android.util.Base64
 import kotlinx.coroutines.sync.Mutex
@@ -10,6 +8,7 @@ import no.lionflow.app.data.SecureStore
 import no.lionflow.app.data.SettingsStore
 import no.lionflow.app.model.Trip
 import no.lionflow.app.model.VehicleStatus
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -282,57 +281,17 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
         return null
     }
 
-    /** One page of trips since the given ISO timestamp (and until [untilIso]), or the page at [nextHref] (the server's own "next" link). */
-    suspend fun trips(v: Vehicle, sinceIso: String?, untilIso: String? = null, nextHref: String? = null): JSONObject = authed { token ->
-        var url = if (nextHref != null && nextHref.startsWith(API)) {
-            if (nextHref.contains("client_id=")) nextHref else nextHref + (if (nextHref.contains('?')) "&" else "?") + clientQuery()
-        } else {
-            var u = "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}&distance=0.1-&pageSize=60"
-            if (sinceIso != null) u += "&timestamps=$sinceIso/${untilIso.orEmpty()}"
-            u
-        }
+    private suspend fun trips(v: Vehicle, sinceIso: String, untilIso: String?, nextHref: String?): JSONObject = authed { token ->
+        val endpoint = "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}".toHttpUrl()
+        val url = tripPageUrl(endpoint, sinceIso, untilIso, nextHref)
         Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject ?: JSONObject()
     }
 
     /** Trips are the server's answer: the trips (raw), and whether it said "no trips found" for the whole period. */
     class TripsResult(val trips: List<JSONObject>, val noneFound: Boolean)
 
-    /**
-     * All trips from [fromMillis] until now. Asked for week by week, each week following the server's own "next" links:
-     * asking for the whole period at once could stop after the first page and leave out the newest trips.
-     */
-    suspend fun allTrips(v: Vehicle, fromMillis: Long): TripsResult = kotlinx.coroutines.coroutineScope {
-        val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-        val now = System.currentTimeMillis()
-        val week = 7 * 86_400_000L
-        val windows = ArrayList<Pair<Long, Long?>>()
-        var end: Long? = null
-        var start = now - week
-        while (true) {
-            windows += maxOf(start, fromMillis) to end
-            if (start <= fromMillis) break
-            end = start; start -= week
-        }
-        val none = java.util.concurrent.atomic.AtomicInteger()
-        val gate = kotlinx.coroutines.sync.Semaphore(4)
-        val lists = windows.map { (from, to) -> async { gate.acquire(); try {
-            val got = LinkedHashMap<String, JSONObject>()
-            var next: String? = null
-            var n = 0
-            do {
-                // "404 / 40400 No trip was found" just means no trips in this period (some cars say so on every call).
-                val j = try { synchronized(iso) { Triple(iso.format(java.util.Date(from)), to?.let { iso.format(java.util.Date(it)) }, next) }.let { (a, b, c) -> trips(v, a, b, c) } }
-                catch (e: ApiException) { if (e.code == 404) { if (n == 0) none.incrementAndGet(); break } else throw e }
-                val arr = j.optJSONObject("_embedded")?.optJSONArray("trips")
-                var fresh = 0
-                if (arr != null) for (i in 0 until arr.length()) { val t = arr.optJSONObject(i) ?: continue; if (got.put(t.optString("id"), t) == null) fresh++ }
-                next = j.optJSONObject("_links")?.optJSONObject("next")?.optString("href")?.takeIf { it.isNotBlank() }
-                n++
-            } while (next != null && fresh > 0 && n < 20)
-            got.values.toList()
-        } finally { gate.release() } } }.awaitAll()
-        TripsResult(lists.flatten().distinctBy { it.optString("id") }, none.get() == windows.size)
-    }
+    suspend fun allTrips(v: Vehicle, fromMillis: Long): TripsResult =
+        loadWeeklyTrips(fromMillis, System.currentTimeMillis()) { from, to, next -> trips(v, from, to, next) }
 
     // ---------------- remote control setup ----------------
 

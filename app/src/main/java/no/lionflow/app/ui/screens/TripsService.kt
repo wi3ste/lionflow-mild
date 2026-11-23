@@ -3,6 +3,7 @@ package no.lionflow.app.ui.screens
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,11 +13,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -37,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import no.lionflow.app.data.AppSettings
+import no.lionflow.app.model.TripPeriod
 import no.lionflow.app.ui.AppViewModel
 import no.lionflow.app.ui.Busy
 import no.lionflow.app.ui.LocalPlatform
@@ -58,7 +67,6 @@ import no.lionflow.app.ui.fmtDistance
 import no.lionflow.app.ui.theme.LocalLf
 import no.lionflow.app.ui.theme.Type
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -79,8 +87,8 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
     var openRoute by remember { mutableStateOf<no.lionflow.app.route.Route?>(null) }
     LaunchedEffect(Unit) { if (ui.trips.isEmpty() && !ui.tripsLoading) vm.loadTrips() }
     val days = if (period == "week") 7 else 30
-    val since = System.currentTimeMillis() - days * 86_400_000L
-    val list = ui.trips.filter { (it.startMillis ?: 0L) >= since }
+    val calendarPeriod = remember(days, ui.now) { TripPeriod(days, ui.now) }
+    val list = remember(ui.trips, calendarPeriod) { calendarPeriod.select(ui.trips) }
     val mildHybrid = ui.status?.isMildHybrid == true
     val km = list.sumOf { it.distanceKm }
     val kwh = list.mapNotNull { it.kwh }.sum()
@@ -91,61 +99,73 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
     // Show l/100 km for petrol cars, or when only fuel was used (hybrids show both if both exist).
     val showFuel = avgL != null && (avg == null || no.lionflow.app.ui.Caps.fuel(ui.status))
 
-    ScreenColumn(wide) {
-        if (!wide) BackLink("Home") { vm.setTab(Tab.Home) }
-        ScreenHeader(if (period == "week") "Last 7 days" else "Last 30 days", "Trips") {
-            Segmented(listOf("week" to "Week", "month" to "Month"), period) { period = it }
-        }
-        LfCard {
-            Row(Modifier.fillMaxWidth()) {
-                Stat(Modifier.weight(1f), fmtDistance(km, s).substringBefore(" "), if (s.distanceUnit == "mi") "mi driven" else "km driven")
-                if (showFuel || mildHybrid) Stat(Modifier.weight(1f),
-                    avgL?.let { String.format(Locale.US, "%.1f", it) } ?: "—",
-                    if (estimatedFuel) "l/100 km (est.)" else "l/100 km")
-                if (!mildHybrid && (!showFuel || (avg != null && no.lionflow.app.ui.Caps.battery(ui.status)))) Stat(Modifier.weight(1f), avg?.let { String.format(Locale.US, "%.1f", it) } ?: "—", "kWh/100 km")
-                Stat(Modifier.weight(1f), "${list.size}", "trips")
-            }
-            // bars per day (week) or per week (month)
-            val buckets = if (period == "week") 7 else 5
-            val bucketMs = if (period == "week") 86_400_000L else 7 * 86_400_000L
-            val start = startOfToday() - (buckets - 1) * bucketMs
-            val sums = DoubleArray(buckets)
-            for (t in list) {
-                val i = (((t.startMillis ?: 0L) - start) / bucketMs).toInt()
-                if (i in 0 until buckets) sums[i] += t.distanceKm
-            }
-            val max = (sums.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
-            val labels = if (period == "week") (0 until 7).map { SimpleDateFormat("EEE", no.lionflow.app.ui.l10n.L10n.locale).format(Date(start + it * bucketMs)).take(2) }
-            else (0 until 5).map { "W${it + 1}" }
-            Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-                for (i in 0 until buckets) {
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(Modifier.fillMaxWidth().height((4 + 68 * sums[i] / max).dp).clip(RoundedCornerShape(8.dp)).background(if (i == buckets - 1) c.meter else c.bar))
-                        Text(labels[i], style = Type.tiny.copy(fontSize = 11.sp), color = c.muted)
+    val locale = no.lionflow.app.ui.l10n.L10n.locale
+    val tripTimePattern = no.lionflow.app.ui.l10n.TimeFmt.pattern("EEE d MMM · HH:mm")
+    val stamp = remember(locale, tripTimePattern, calendarPeriod.dayStarts.first()) {
+        SimpleDateFormat(tripTimePattern, locale)
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            Modifier.widthIn(max = if (wide) 720.dp else 10_000.dp)
+                .fillMaxWidth()
+                .windowInsetsPadding(if (wide) WindowInsets.systemBars else WindowInsets.statusBars),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        ) {
+            item {
+                Column(Modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (!wide) BackLink("Home") { vm.setTab(Tab.Home) }
+                    ScreenHeader(if (period == "week") "Last 7 days" else "Last 30 days", "Trips") {
+                        Segmented(listOf("week" to "Week", "month" to "Month"), period) { period = it }
+                    }
+                    LfCard {
+                        Row(Modifier.fillMaxWidth()) {
+                            Stat(Modifier.weight(1f), fmtDistance(km, s).substringBefore(" "), if (s.distanceUnit == "mi") "mi driven" else "km driven")
+                            if (showFuel || mildHybrid) Stat(Modifier.weight(1f),
+                                avgL?.let { String.format(Locale.US, "%.1f", it) } ?: "—",
+                                if (estimatedFuel) "l/100 km (est.)" else "l/100 km")
+                            if (!mildHybrid && (!showFuel || (avg != null && no.lionflow.app.ui.Caps.battery(ui.status)))) Stat(Modifier.weight(1f), avg?.let { String.format(Locale.US, "%.1f", it) } ?: "—", "kWh/100 km")
+                            Stat(Modifier.weight(1f), "${list.size}", "trips")
+                        }
+                        // bars per day (week) or per week (month)
+                        val sums = calendarPeriod.distanceByBucket(list, if (period == "week") 1 else 7)
+                        val buckets = sums.size
+                        val max = (sums.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+                        val labels = if (period == "week") {
+                            val format = SimpleDateFormat("EEE", no.lionflow.app.ui.l10n.L10n.locale)
+                            calendarPeriod.dayStarts.map { format.format(Date(it)).take(2) }
+                        } else (1..buckets).map { "W$it" }
+                        Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                            for (i in 0 until buckets) {
+                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(Modifier.fillMaxWidth().height((4 + 68 * sums[i] / max).dp).clip(RoundedCornerShape(8.dp)).background(if (i == buckets - 1) c.meter else c.bar))
+                                    Text(labels[i], style = Type.tiny.copy(fontSize = 11.sp), color = c.muted)
+                                }
+                            }
+                        }
+                    }
+                    if (ui.status?.energyType == "Hybrid" && list.isNotEmpty()) HybridStats(vm, list, ui.trips, s)
+                    TagStats(vm, ui, s, list)
+                    if (ui.tripsLoading) Row(verticalAlignment = Alignment.CenterVertically) { Busy(); Text("  Loading trips…", style = Type.small, color = c.muted) }
+                    if (list.isEmpty() && !ui.tripsLoading) {
+                        Text("No trips in this period.", style = Type.small, color = c.muted)
+                        // Peugeot's server answered "no trips found" (some cars, e.g. newer E-5008, don't share trips with other apps).
+                        if (vm.tripsNone && ui.trips.isEmpty()) Text(
+                            "Peugeot doesn't give trips for this car to other apps, even when the official app shows them. LionFlow now logs the trips itself from the car's reports, whoever drives, so new trips show up here. Older trips can be imported: in the official app export your trips as CSV (or the full .myp file), then use Settings → Import driving data here.",
+                            style = Type.tiny, color = c.muted)
                     }
                 }
             }
-        }
-        if (ui.status?.energyType == "Hybrid" && list.isNotEmpty()) HybridStats(vm, list, ui.trips, s)
-        TagStats(vm, ui, s, list)
-        if (ui.tripsLoading) Row(verticalAlignment = Alignment.CenterVertically) { Busy(); Text("  Loading trips…", style = Type.small, color = c.muted) }
-        if (list.isEmpty() && !ui.tripsLoading) {
-            Text("No trips in this period.", style = Type.small, color = c.muted)
-            // Peugeot's server answered "no trips found" (some cars, e.g. newer E-5008, don't share trips with other apps).
-            if (vm.tripsNone && ui.trips.isEmpty()) Text(
-                "Peugeot doesn't give trips for this car to other apps, even when the official app shows them. LionFlow now logs the trips itself from the car's reports, whoever drives, so new trips show up here. Older trips can be imported: in the official app export your trips as CSV (or the full .myp file), then use Settings → Import driving data here.",
-                style = Type.tiny, color = c.muted)
-        }
-        if (list.isNotEmpty()) {
-            LfCard(padding = PaddingValues(0.dp)) {
-                val fmt = SimpleDateFormat(no.lionflow.app.ui.l10n.TimeFmt.pattern("EEE d MMM · HH:mm"), no.lionflow.app.ui.l10n.L10n.locale)
-                list.take(50).forEachIndexed { i, t ->
+            itemsIndexed(list, key = { _, trip -> trip.id }) { i, t ->
+                val top = if (i == 0) 24.dp else 0.dp
+                val bottom = if (i == list.lastIndex) 24.dp else 0.dp
+                val shape = RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
+                Column(Modifier.fillMaxWidth().clip(shape).background(c.card)) {
                     if (i > 0) Divider()
                     val route = no.lionflow.app.route.Routes.forTrip(ui.routes, t.startMillis, t.endMillis)
                     Row(Modifier.fillMaxWidth().clickable { openTrip = t; openRoute = route }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(c.raisedBlue), contentAlignment = Alignment.Center) { LfIcon(if (route != null) LfIcons.Map else LfIcons.Route, c.blueInk, 20.dp) }
                         Column(Modifier.weight(1f)) {
-                            Text(t.startMillis?.let { fmt.format(Date(it)) } ?: "Trip", style = Type.label, color = c.text)
+                            Text(t.startMillis?.let { stamp.format(Date(it)) } ?: "Trip", style = Type.label, color = c.text)
                             Text(listOfNotNull(t.durationSec?.let { "${(it / 60).toInt()} min" }, t.avgSpeedKmh?.let { "${it.toInt()} km/h avg" }).joinToString(" · "), style = Type.small, color = c.muted)
                         }
                         TripTagSlot(vm, s, t)
@@ -166,29 +186,32 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
                     }
                 }
             }
-        }
-        // Routes recorded on the phone that don't match a trip from Peugeot
-        val unmatched = ui.routes.filter { r -> r.startMillis >= since && ui.trips.none { t -> no.lionflow.app.route.Routes.forTrip(listOf(r), t.startMillis, t.endMillis) != null } }
-        if (unmatched.isNotEmpty()) {
-            Text("Recorded routes", style = Type.label, color = c.text)
-            LfCard(padding = PaddingValues(0.dp)) {
-                val fmt = SimpleDateFormat(no.lionflow.app.ui.l10n.TimeFmt.pattern("EEE d MMM · HH:mm"), no.lionflow.app.ui.l10n.L10n.locale)
-                unmatched.take(30).forEachIndexed { i, r ->
-                    if (i > 0) Divider()
-                    Row(Modifier.fillMaxWidth().clickable { openTrip = null; openRoute = r }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(c.raisedBlue), contentAlignment = Alignment.Center) { LfIcon(LfIcons.Map, c.blueInk, 20.dp) }
-                        Column(Modifier.weight(1f)) {
-                            Text(fmt.format(Date(r.startMillis)), style = Type.label, color = c.text)
-                            Text("${((r.endMillis - r.startMillis) / 60_000)} min", style = Type.small, color = c.muted)
+            item {
+                Column(Modifier.padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Routes recorded on the phone that don't match a trip from Peugeot
+                    val unmatched = ui.routes.filter { r -> calendarPeriod.contains(r.startMillis) && ui.trips.none { t -> no.lionflow.app.route.Routes.forTrip(listOf(r), t.startMillis, t.endMillis) != null } }
+                    if (unmatched.isNotEmpty()) {
+                        Text("Recorded routes", style = Type.label, color = c.text)
+                        LfCard(padding = PaddingValues(0.dp)) {
+                            unmatched.take(30).forEachIndexed { i, r ->
+                                if (i > 0) Divider()
+                                Row(Modifier.fillMaxWidth().clickable { openTrip = null; openRoute = r }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(c.raisedBlue), contentAlignment = Alignment.Center) { LfIcon(LfIcons.Map, c.blueInk, 20.dp) }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(stamp.format(Date(r.startMillis)), style = Type.label, color = c.text)
+                                        Text("${((r.endMillis - r.startMillis) / 60_000)} min", style = Type.small, color = c.muted)
+                                    }
+                                    Text(fmtDistance(r.km, s), style = Type.label.copy(fontSize = 17.sp), color = c.text)
+                                }
+                            }
                         }
-                        Text(fmtDistance(r.km, s), style = Type.label.copy(fontSize = 17.sp), color = c.text)
                     }
+                    if (!s.routeTracking) Text("Tip: turn on Route tracking in Settings to see your drives on a map.", style = Type.tiny, color = c.muted)
                 }
             }
         }
-        if (!s.routeTracking) Text("Tip: turn on Route tracking in Settings to see your drives on a map.", style = Type.tiny, color = c.muted)
-        if (openTrip != null || openRoute != null) TripDetail(vm, openTrip, openRoute, s, mildHybrid) { openTrip = null; openRoute = null }
     }
+    if (openTrip != null || openRoute != null) TripDetail(vm, openTrip, openRoute, s, mildHybrid) { openTrip = null; openRoute = null }
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -279,10 +302,6 @@ private fun TripDetail(vm: AppViewModel, trip: no.lionflow.app.model.Trip?, rout
         }
     }
 }
-
-private fun startOfToday(): Long = Calendar.getInstance().apply {
-    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-}.timeInMillis
 
 @Composable
 private fun Stat(modifier: Modifier, value: String, label: String) {

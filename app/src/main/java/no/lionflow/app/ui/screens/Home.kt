@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import no.lionflow.app.api.WeatherApi
 import no.lionflow.app.data.AppSettings
+import no.lionflow.app.model.Trip
+import no.lionflow.app.model.TripPeriod
 import no.lionflow.app.ui.AppViewModel
 import no.lionflow.app.ui.LocalConfirm
 import no.lionflow.app.ui.ScreenColumn
@@ -359,12 +361,10 @@ private fun TripsClimateRow(vm: AppViewModel, ui: UiState, s: AppSettings) {
 @Composable
 private fun TripsTile(modifier: Modifier, vm: AppViewModel, ui: UiState, s: AppSettings) {
     val c = LocalLf.current
-    val dayMs = 86_400_000L
-    val cal = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }
-    val days = (6 downTo 0).map { cal.timeInMillis - it * dayMs }
-    val week = ui.trips.filter { (it.startMillis ?: 0L) >= days.first() }
-    val perDay = days.map { d -> week.filter { (it.startMillis ?: 0L) in d until d + dayMs }.sumOf { it.distanceKm } }
-    val km = perDay.sum()
+    val calendarWeek = remember(ui.now) { TripPeriod(7, ui.now) }
+    val week = remember(ui.trips, calendarWeek) { calendarWeek.select(ui.trips) }
+    val perDay = calendarWeek.distanceByBucket(week)
+    val km = week.sumOf { it.distanceKm }
     val kwh = week.mapNotNull { it.kwh }.sum()
     val max = (perDay.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
     LfCard(modifier, radius = 24.dp, padding = androidx.compose.foundation.layout.PaddingValues(16.dp), onClick = { vm.setTab(Tab.Trips); vm.loadTrips() }) {
@@ -414,14 +414,10 @@ private fun ClimateTile(modifier: Modifier, vm: AppViewModel, ui: UiState, s: Ap
 @Composable
 private fun TripsCard(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val c = LocalLf.current
-    val now = System.currentTimeMillis()
-    val dayMs = 86_400_000L
-    val cal = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }
-    val todayStart = cal.timeInMillis
-    val days = (6 downTo 0).map { todayStart - it * dayMs }
-    val week = ui.trips.filter { (it.startMillis ?: 0L) >= days.first() }
-    val perDay = days.map { d -> week.filter { (it.startMillis ?: 0L) in d until d + dayMs }.sumOf { it.distanceKm } }
-    val km = perDay.sum()
+    val calendarWeek = remember(ui.now) { TripPeriod(7, ui.now) }
+    val week = remember(ui.trips, calendarWeek) { calendarWeek.select(ui.trips) }
+    val perDay = calendarWeek.distanceByBucket(week)
+    val km = week.sumOf { it.distanceKm }
     val kwh = week.mapNotNull { it.kwh }.sum()
     LfCard(radius = 24.dp, padding = androidx.compose.foundation.layout.PaddingValues(18.dp), onClick = { vm.setTab(Tab.Trips); vm.loadTrips() }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -439,7 +435,10 @@ private fun TripsCard(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     listOfNotNull(
                         "${week.size} trips",
                         if (km > 1 && kwh > 0) (if (s.distanceUnit == "mi") String.format(java.util.Locale.US, "%.1f mi/kWh", km / kwh / 1.609344) else String.format(java.util.Locale.US, "%.1f kWh/100 km", kwh / km * 100)) else null,
-                        week.filter { it.liters != null }.let { f -> val l = f.sumOf { it.liters ?: 0.0 }; val d = f.sumOf { it.distanceKm }; if (d > 1 && l > 0) String.format(java.util.Locale.US, "%.1f l/100 km", l / d * 100) else null },
+                        Trip.fuelAverage(week)?.let { (average, estimated) ->
+                            val unit = if (estimated) "l/100 km (est.)" else "l/100 km"
+                            String.format(java.util.Locale.US, "%.1f %s", average, unit)
+                        },
                     ).joinToString(" · "),
                     style = Type.small, color = c.muted,
                 )
@@ -451,7 +450,7 @@ private fun TripsCard(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 perDay.forEachIndexed { i, v ->
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box(Modifier.width(10.dp).height((4 + 40 * (v / max)).dp).clip(RoundedCornerShape(5.dp)).background(if (i == 6) c.accent else if (v > 0) c.bar else c.track))
-                        Text(dayFmt.format(java.util.Date(days[i])), style = Type.tiny, color = c.muted)
+                        Text(dayFmt.format(java.util.Date(calendarWeek.dayStarts[i])), style = Type.tiny, color = c.muted)
                     }
                 }
             }
@@ -772,7 +771,7 @@ fun TripsSummary(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val c = LocalLf.current
     LfCard(onClick = { vm.setTab(Tab.Trips); vm.loadTrips() }) {
         Text("Trips", style = Type.label, color = c.text)
-        val week = ui.trips.filter { (it.startMillis ?: 0) > System.currentTimeMillis() - 7 * 86_400_000L }
+        val week = TripPeriod(7, ui.now).select(ui.trips)
         Text(if (ui.trips.isEmpty()) "Open to load your drives" else "${fmtDistance(week.sumOf { it.distanceKm }, s)} this week", style = Type.stat, color = c.text)
         Spacer(Modifier.width(1.dp))
     }

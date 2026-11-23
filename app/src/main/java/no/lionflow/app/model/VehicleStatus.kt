@@ -6,9 +6,9 @@ import no.lionflow.app.api.objects
 import no.lionflow.app.api.str
 import org.json.JSONArray
 import org.json.JSONObject
-import java.text.SimpleDateFormat
+import java.time.OffsetDateTime
 import java.util.Locale
-import java.util.TimeZone
+import java.util.UUID
 
 data class Program(val slot: Int, val days: List<String>, val hour: Int, val minute: Int, val enabled: Boolean)
 
@@ -157,16 +157,13 @@ data class VehicleStatus(
             return h to mi
         }
 
+        private val basicOffset = Regex("([+-]\\d{2})(\\d{2})$")
+
         fun parseIso(s: String?): Long? {
             if (s.isNullOrBlank()) return null
-            val patterns = listOf("yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
-            for (p in patterns) {
-                try {
-                    val f = SimpleDateFormat(p, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-                    return f.parse(s)?.time
-                } catch (_: Exception) {}
-            }
-            return null
+            return runCatching {
+                OffsetDateTime.parse(s.replace(basicOffset, "$1:$2")).toInstant().toEpochMilli()
+            }.getOrNull()
         }
     }
 }
@@ -204,6 +201,16 @@ data class Trip(
             unit?.lowercase(Locale.ROOT)?.filterNot(Char::isWhitespace)?.ifEmpty { null }
 
         private fun JSONObject.nonNegative(key: String): Double? = num(key)?.takeIf { it.isFinite() && it >= 0 }
+
+        internal fun startOf(t: JSONObject): Long? =
+            VehicleStatus.parseIso(t.str("startedAt")) ?: VehicleStatus.parseIso(t.str("createdAt"))
+
+        internal fun idOf(t: JSONObject): String {
+            t.str("id")?.takeUnless(String::isBlank)?.let { return it }
+            val key = listOf(startOf(t), VehicleStatus.parseIso(t.str("stoppedAt")), t.nonNegative("distance"),
+                t.nonNegative("duration"), t.nonNegative("startMileage")).joinToString("|")
+            return "anonymous-" + UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8))
+        }
 
         fun parse(t: JSONObject, mildHybrid: Boolean = false): Trip {
             val energy = t.optJSONArray("energyConsumptions")?.objects().orEmpty()
@@ -244,8 +251,8 @@ data class Trip(
                 }
             }
             return Trip(
-                id = t.optString("id"),
-                startMillis = VehicleStatus.parseIso(t.str("startedAt") ?: t.str("createdAt")),
+                id = idOf(t),
+                startMillis = startOf(t),
                 endMillis = VehicleStatus.parseIso(t.str("stoppedAt")),
                 distanceKm = km,
                 durationSec = t.num("duration"),
