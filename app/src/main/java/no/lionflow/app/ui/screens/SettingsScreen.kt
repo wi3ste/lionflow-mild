@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import no.lionflow.app.BuildConfig
+import no.lionflow.app.api.MildHybridDetection
 import no.lionflow.app.data.AppSettings
 import no.lionflow.app.ui.AppViewModel
 import no.lionflow.app.ui.LocalPlatform
@@ -122,12 +123,35 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 }
             }
             if (!vm.isDemo) ui.vehicle?.let { vehicle ->
-                val override = vm.settings.mildHybridOverride(vehicle.vin)
+                var override by remember(vehicle.vin) { mutableStateOf(vm.settings.mildHybridOverride(vehicle.vin)) }
+                val detection = vehicle.mildHybridDetection
+                val result = when (detection) {
+                    MildHybridDetection.VehicleMetadata -> "Automatic · Recognized from vehicle metadata"
+                    MildHybridDetection.ModelName -> "Automatic · Recognized from model name"
+                    MildHybridDetection.OtherPowertrain -> "Automatic · Different powertrain"
+                    MildHybridDetection.InsufficientMetadata -> "Automatic · Insufficient vehicle information"
+                }
                 Divider()
-                DropdownRow("48 V mild hybrid", "Applies to the selected car",
+                DropdownRow("48 V mild hybrid", result,
                     listOf(0 to "Automatic", 1 to "On", 2 to "Off"),
                     when (override) { null -> 0; true -> 1; false -> 2 },
-                ) { mode -> vm.setMildHybridOverride(if (mode == 0) null else mode == 1) }
+                ) { mode ->
+                    override = if (mode == 0) null else mode == 1
+                    vm.setMildHybridOverride(override)
+                }
+                if (detection == MildHybridDetection.InsufficientMetadata) {
+                    val motorization = if (vehicle.motorization.isBlank()) "Motorization missing" else "Motorization present"
+                    val label = if (vehicle.modelLabel.isNullOrBlank() && vehicle.legacyLabel.isNullOrBlank()) {
+                        "Model name missing"
+                    } else "Model name present"
+                    val type = when (vehicle.typeVehicleReported) {
+                        true -> "typeVehicle present"
+                        false -> "typeVehicle missing"
+                        null -> "typeVehicle not checked"
+                    }
+                    Text("$motorization · $label · $type", style = Type.tiny, color = c.muted,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp))
+                }
             }
             Divider()
             Text("Add another car or account", style = Type.small.copy(fontWeight = FontWeight.SemiBold), color = c.accentInk,

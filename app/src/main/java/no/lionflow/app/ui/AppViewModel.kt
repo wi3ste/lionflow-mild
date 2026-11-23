@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import no.lionflow.app.LionFlowApp
 import no.lionflow.app.api.AuthExpiredException
 import no.lionflow.app.api.Charger
@@ -99,6 +101,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             { _ui.value.myLat?.let { la -> _ui.value.myLon?.let { lo -> la to lo } } })
     }
     private var ticker: Job? = null
+    private val vehicleMetadataLock = Mutex()
+    private val brandingAttempts = HashSet<Pair<String, String>>()
 
     val remoteReady: Boolean get() = remote.isSetUp || isDemo
     /** Demo mode: a sample car, no account. */
@@ -328,21 +332,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setMildHybridOverride(enabled: Boolean?) {
         val vehicle = _ui.value.vehicle ?: return
+        val previouslyMildHybrid = api.isMildHybrid(vehicle)
         settings.setMildHybridOverride(vehicle.vin, enabled)
-        updateMildHybridStatus()
+        if (previouslyMildHybrid != api.isMildHybrid(vehicle)) updateMildHybridStatus()
+        if (enabled == null && vehicle.needsBranding && (api.profile to vehicle.vin) !in brandingAttempts) refresh()
     }
 
     private fun updateMildHybridStatus() {
         val current = _ui.value
         val vehicle = current.vehicle ?: return
-        val previous = current.status ?: return
-        val status = api.parseStatus(vehicle, previous.raw).copy(
-            kmToService = previous.kmToService,
-            daysToService = previous.daysToService,
-        )
-        _ui.update { it.copy(status = status, tab = if (Caps.tab(it.tab, status)) it.tab else Tab.Home) }
-        no.lionflow.app.widget.WidgetData.save(getApplication(), status)
-        if (current.trips.isNotEmpty()) loadTrips()
+        current.status?.let { previous ->
+            val status = api.parseStatus(vehicle, previous.raw).copy(
+                kmToService = previous.kmToService,
+                daysToService = previous.daysToService,
+            )
+            _ui.update { it.copy(status = status, tab = if (Caps.tab(it.tab, status)) it.tab else Tab.Home) }
+            no.lionflow.app.widget.WidgetData.save(getApplication(), status)
+        }
+        if (current.trips.isNotEmpty() && !current.tripsLoading) loadTrips()
     }
 
     fun vehicleKind(v: no.lionflow.app.api.Vehicle): String = when {
@@ -354,14 +361,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Reload the car list (e.g. after adding a car in MyPeugeot). */
     fun reloadVehicles() = viewModelScope.launch {
+        val profile = api.profile
         try {
-            val all = api.vehicles()
-            val vehicle = api.pick(all)
-            val previous = _ui.value.vehicle
-            _ui.update { it.copy(vehicles = all, vehicle = vehicle) }
-            if (vehicle != null && previous != null && previous.vin == vehicle.vin &&
-                api.isMildHybrid(vehicle) != api.isMildHybrid(previous)) updateMildHybridStatus()
+            vehicleMetadataLock.withLock {
+                if (profile != api.profile) return@withLock
+                val all = api.vehicles()
+                if (profile != api.profile) return@withLock
+                val vehicle = api.pick(all)
+                vehicle?.let { brandingAttempts.add(profile to it.vin) }
+                applyVehicleMetadata(all, vehicle)
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) { toast("Couldn't load your cars — ${no.lionflow.app.api.Http.describe(e)}") }
+    }
+
+    private fun applyVehicleMetadata(all: List<Vehicle>, vehicle: Vehicle?) {
+        val previous = _ui.value.vehicle
+        _ui.update { it.copy(vehicles = all, vehicle = vehicle) }
+        if (vehicle != null && previous?.vin == vehicle.vin &&
+            api.isMildHybrid(vehicle) != api.isMildHybrid(previous)) updateMildHybridStatus()
     }
     fun clearMessage() = _ui.update { it.copy(message = null) }
     private fun toast(m: String) = _ui.update { it.copy(message = m) }
@@ -579,23 +598,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var serverRetries = 0
-    private val brandingAttempts = HashSet<Pair<String, String>>()
 
-    private suspend fun refreshVehicleBranding(vehicle: Vehicle): Vehicle {
-        if (!vehicle.needsBranding || settings.mildHybridOverride(vehicle.vin) != null ||
-            !brandingAttempts.add(api.profile to vehicle.vin)) return vehicle
-        val all = try {
-            api.vehicles()
-        } catch (e: AuthExpiredException) {
-            throw e
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            return vehicle
+    private suspend fun refreshVehicleBranding(vehicle: Vehicle, profile: String): Vehicle =
+        vehicleMetadataLock.withLock {
+            val selected = _ui.value.vehicle
+            if (profile != api.profile || (selected != null && selected.vin != vehicle.vin)) return@withLock vehicle
+            val current = selected ?: vehicle
+            if (!current.needsBranding || settings.mildHybridOverride(current.vin) != null ||
+                !brandingAttempts.add(profile to current.vin)) return@withLock current
+            val all = try {
+                api.vehicles()
+            } catch (e: AuthExpiredException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@withLock current
+            }
+            val active = _ui.value.vehicle
+            if (profile != api.profile || (active != null && active.vin != current.vin)) return@withLock current
+            val updated = all.firstOrNull { it.vin == current.vin } ?: current
+            applyVehicleMetadata(all, updated)
+            updated
         }
-        _ui.update { it.copy(vehicles = all) }
-        return all.firstOrNull { it.vin == vehicle.vin } ?: vehicle
-    }
 
     fun refresh() {
         if (_ui.value.refreshing) return
@@ -606,9 +631,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             _ui.update { it.copy(refreshing = true) }
+            val profile = api.profile
             try {
                 val cached = _ui.value.vehicle ?: api.currentVehicle() ?: throw IllegalStateException("No car on this account")
-                val v = refreshVehicleBranding(cached)
+                val v = refreshVehicleBranding(cached, profile)
+                if (profile != api.profile || _ui.value.vehicle?.let { it.vin != v.vin } == true) return@launch
                 var missing = false
                 val raw = try { api.status(v) } catch (e: no.lionflow.app.api.ApiException) {
                     if (e.code != 404 && !(e.message ?: "").contains("40400")) throw e
@@ -621,22 +648,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     })
                 }
                 val maint = try { api.maintenance(v) } catch (e: no.lionflow.app.api.ApiException) { if (missing) null else throw e }
-                val st = applyHolds(no.lionflow.app.model.ChargePower.record(api.parseStatus(v, raw, maint)))
+                // Reload cars can complete while the status request is in flight.
+                val selected = _ui.value.vehicle ?: v
+                if (profile != api.profile || selected.vin != v.vin) return@launch
+                val st = applyHolds(no.lionflow.app.model.ChargePower.record(api.parseStatus(selected, raw, maint)))
                 if (settings.value.smartMode.isNotEmpty() && !programsPending()) try { no.lionflow.app.work.SmartSchedule.syncFromCar(app(), st.programs) } catch (_: Exception) {}
                 val now = System.currentTimeMillis()
                 settings.lastRefresh = now
                 serverRetries = 0
                 no.lionflow.app.widget.WidgetData.save(getApplication<Application>(), st)
-                _ui.update { it.copy(vehicle = v, status = st, statusMissing = missing, refreshing = false, lastRefresh = now, now = now) }
+                _ui.update { it.copy(vehicle = selected, status = st, statusMissing = missing, refreshing = false, lastRefresh = now, now = now) }
                 if (_ui.value.trips.isEmpty() && !_ui.value.tripsLoading) loadTrips()
                 if (!st.preconditioningOn && no.lionflow.app.work.ChargeLimit.due(getApplication(), st)) viewModelScope.launch {
                     no.lionflow.app.work.ChargeLimit.check(getApplication(), st)?.let { toast(it); kotlinx.coroutines.delay(4000); refresh() }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: AuthExpiredException) {
+                if (profile != api.profile) return@launch
                 _ui.update { it.copy(refreshing = false) }
                 toast("Your Peugeot session expired — please sign in again")
                 signOut()
             } catch (e: Exception) {
+                if (profile != api.profile) return@launch
                 _ui.update { it.copy(refreshing = false) }
                 val msg = no.lionflow.app.api.Http.describe(e)
                 remote.addLog("refresh failed: $msg")
@@ -649,6 +683,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         viewModelScope.launch { kotlinx.coroutines.delay(60_000L * serverRetries); refresh() }
                     }
                 } else toast("Couldn't update — $msg")
+            } finally {
+                if (_ui.value.refreshing && api.profile == profile) _ui.update { it.copy(refreshing = false) }
             }
         }
     }
@@ -1043,7 +1079,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val now = System.currentTimeMillis()
                 val monthStart = TripPeriod(30, now).dayStarts.first()
                 val res = api.allTrips(v, minOf(now - days * 86_400_000L, monthStart))
-                val all = api.parseTrips(v, res.trips)
+                val vehicle = _ui.value.vehicle?.takeIf { it.vin == v.vin } ?: v
+                val all = api.parseTrips(vehicle, res.trips)
                 tripsNone = res.noneFound
                 if (tripsNone) remote.addLog("trips: the server says no trips were found")
                 val newest = all.maxOfOrNull { it.startMillis ?: 0L } ?: 0L

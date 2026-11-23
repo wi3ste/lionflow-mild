@@ -63,6 +63,10 @@ object StellantisConfig {
     }
 }
 
+internal enum class MildHybridDetection(val detected: Boolean = false) {
+    VehicleMetadata(true), ModelName(true), OtherPowertrain, InsufficientMetadata,
+}
+
 data class Vehicle(
     val id: String,
     val vin: String,
@@ -71,53 +75,84 @@ data class Vehicle(
     val pictureUrl: String?,
     val maintenanceHref: String?,
     val modelLabel: String? = null,
-    private val brandingLoaded: Boolean = false,
+    internal val legacyLabel: String? = null,
+    internal val typeVehicleReported: Boolean? = null,
 ) {
     internal val needsBranding: Boolean
-        get() = !brandingLoaded && modelLabel.isNullOrBlank() &&
-            brand.equals("Peugeot", ignoreCase = true) && motorization.equals("Hybrid", ignoreCase = true)
+        get() = (brand.isBlank() || brand.equals("Peugeot", ignoreCase = true)) &&
+            mildHybridDetection == MildHybridDetection.InsufficientMetadata
 
     val reportsMildHybrid: Boolean
+        get() = mildHybridDetection.detected
+
+    internal fun isMildHybrid(manualOverride: Boolean?): Boolean = manualOverride ?: reportsMildHybrid
+
+    internal val mildHybridDetection: MildHybridDetection
         get() {
             val powertrain = motorization.filter(Char::isLetterOrDigit).lowercase(Locale.ROOT)
-            if (powertrain in mildHybridMotorizations) return true
-            // Peugeot's 208 Hybrid 100 e-DCS6 is a 48 V model. "Hybrid" or "208" alone is ambiguous.
-            return powertrain == "hybrid" && brand.equals("Peugeot", ignoreCase = true) &&
-                modelLabel?.let { hybrid208.containsMatchIn(it) } == true
+            if (powertrain in mildHybridMotorizations) return MildHybridDetection.VehicleMetadata
+            if (powertrain in otherMotorizations) return MildHybridDetection.OtherPowertrain
+            val labels = listOfNotNull(modelLabel, legacyLabel).map {
+                labelSeparator.replace(it.lowercase(Locale.ROOT), " ").trim()
+            }
+            if (labels.any(otherModel::containsMatchIn)) return MildHybridDetection.OtherPowertrain
+            // The complete Peugeot model and transmission distinguish this version from a generic Hybrid.
+            if (powertrain in ambiguousMotorizations && brand.equals("Peugeot", ignoreCase = true) &&
+                labels.any(hybrid208::containsMatchIn)) return MildHybridDetection.ModelName
+            return MildHybridDetection.InsufficientMetadata
         }
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("vin", vin); put("motorization", motorization); put("brand", brand)
         put("picture", pictureUrl ?: ""); put("maintenance", maintenanceHref ?: "")
         modelLabel?.let { put("modelLabel", it) }
-        if (brandingLoaded) put("brandingLoaded", true)
+        legacyLabel?.let { put("legacyLabel", it) }
+        typeVehicleReported?.let { put("typeVehicleReported", it) }
     }
 
     companion object {
-        private val mildHybridMotorizations = setOf("mhev", "mildhybrid", "mildhybridelectricvehicle", "48vmildhybrid")
-        private val hybrid208 = Regex("""\b208\s+hybrid\s+100\s+e[-‐‑– ]?dcs\s*6\b""", RegexOption.IGNORE_CASE)
+        private val mildHybridMotorizations = setOf(
+            "mhev", "mhev48v", "48vmhev", "mildhybrid", "mildhybridelectricvehicle", "48vmildhybrid", "mildhybrid48v",
+            "48vhybrid", "hybrid48v",
+        )
+        private val otherMotorizations = setOf(
+            "phev", "pluginhybrid", "pluginhybridelectricvehicle", "bev", "electric", "batteryelectricvehicle",
+            "thermic", "thermal", "fuel", "petrol", "gasoline", "diesel", "ice", "hydrogen",
+        )
+        private val ambiguousMotorizations = setOf("", "hybrid", "hev", "unknown")
+        private val labelSeparator = Regex("""[^\p{L}\p{N}]+""")
+        private val otherModel = Regex("""\b(?:phev|bev|plug ?in|electric|e ?208)\b""")
+        private val hybrid208 = Regex("""\b208(?: (?![0-9]{3,4}\b)[\p{L}\p{N}]+)*? hybrid 100 e ?dcs ?6\b""")
+
+        private fun JSONObject.metadataString(key: String): String? =
+            (opt(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }
 
         fun fromJson(j: JSONObject) = Vehicle(
             id = j.getString("id"), vin = j.getString("vin"),
-            motorization = j.optString("motorization"), brand = j.optString("brand"),
+            motorization = j.metadataString("motorization").orEmpty(), brand = j.metadataString("brand").orEmpty(),
             pictureUrl = j.optString("picture").ifEmpty { null },
             maintenanceHref = j.optString("maintenance").ifEmpty { null },
-            modelLabel = j.str("modelLabel"),
-            brandingLoaded = j.optBoolean("brandingLoaded"),
+            modelLabel = j.metadataString("modelLabel"),
+            legacyLabel = j.metadataString("legacyLabel"),
+            typeVehicleReported = j.opt("typeVehicleReported") as? Boolean,
         )
 
         internal fun fromApi(j: JSONObject, defaultBrand: String): Vehicle {
             val extension = j.obj("_embedded", "extension")
             val branding = extension?.optJSONObject("branding")
+            val brandingLabel = branding?.metadataString("label")
+            val label = j.metadataString("label")
             return Vehicle(
                 id = j.getString("id"),
                 vin = j.getString("vin"),
-                motorization = j.optString("motorization"),
-                brand = branding?.str("brand")?.ifBlank { null } ?: j.optString("brand", defaultBrand),
+                motorization = j.metadataString("motorization").orEmpty(),
+                brand = branding?.metadataString("brand") ?: j.metadataString("brand") ?: defaultBrand,
                 pictureUrl = j.optJSONArray("pictures")?.optString(0)?.ifEmpty { null },
                 maintenanceHref = j.obj("_links", "maintenance")?.str("href"),
-                modelLabel = branding?.str("label")?.ifBlank { null } ?: j.str("label"),
-                brandingLoaded = true,
+                modelLabel = brandingLabel ?: label,
+                legacyLabel = label?.takeIf { brandingLabel != null && it != brandingLabel },
+                // The public B2C schema does not define typeVehicle. Keep only its presence for diagnostics.
+                typeVehicleReported = listOfNotNull(j, extension, branding).any { !it.isNull("typeVehicle") },
             )
         }
     }
@@ -219,16 +254,18 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     }
 
     suspend fun vehicles(): List<Vehicle> = authed { token ->
+        val requestProfile = profile
+        val defaultBrand = no.lionflow.app.model.Brands.current.display
+        val before = cachedVehiclesOf(requestProfile)
         val url = "$API/connectedcar/v4/user/vehicles?${clientQuery()}&extension=branding"
         val j = Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
             ?: throw ApiException(0, "Empty vehicle list")
-        val before = cachedVehicles()
         val list = j.obj("_embedded")?.optJSONArray("vehicles")?.objects().orEmpty().map { v ->
-            Vehicle.fromApi(v, no.lionflow.app.model.Brands.current.display)
+            Vehicle.fromApi(v, defaultBrand)
         }
             // The same car can come twice (for example when it is shared with another account): keep the one in use.
             .groupBy { it.vin }.values.map { same -> same.firstOrNull { v -> before.any { it.id == v.id } } ?: same.first() }
-        secure.put(K_VEHICLES, JSONArray(list.map { it.toJson() }).toString())
+        if (profile == requestProfile) secure.put(K_VEHICLES, JSONArray(list.map { it.toJson() }).toString())
         list
     }
 
@@ -240,8 +277,7 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     fun switchProfile(profile: String) { secure.profile = profile }
     val profile: String get() = secure.profile
 
-    fun cachedVehicles(): List<Vehicle> =
-        secure.get(K_VEHICLES)?.let { s -> JSONArray(s).objects().map { Vehicle.fromJson(it) } }.orEmpty()
+    fun cachedVehicles(): List<Vehicle> = cachedVehiclesOf(profile)
 
     /** The car chosen in the app (accounts can have several). */
     var selectedVin: String?
@@ -253,7 +289,7 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     suspend fun currentVehicle(): Vehicle? = cachedVehicle() ?: pick(vehicles())
 
     fun isMildHybrid(vehicle: Vehicle): Boolean =
-        settings.mildHybridOverride(vehicle.vin) ?: vehicle.reportsMildHybrid
+        vehicle.isMildHybrid(settings.mildHybridOverride(vehicle.vin))
 
     fun parseStatus(vehicle: Vehicle, status: JSONObject, maintenance: JSONObject? = null): VehicleStatus =
         VehicleStatus.parse(status, maintenance, isMildHybrid(vehicle))

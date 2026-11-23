@@ -1,6 +1,7 @@
 package no.lionflow.app.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,8 +62,8 @@ data class AppSettings(
 )
 
 /** Plain (non-secret) preferences, exposed as a StateFlow so the UI updates instantly. */
-class SettingsStore(context: Context) {
-    private val p = context.getSharedPreferences("lf_settings", Context.MODE_PRIVATE)
+class SettingsStore internal constructor(private val p: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences("lf_settings", Context.MODE_PRIVATE))
     private val _state = MutableStateFlow(load().also { no.lionflow.app.model.Brands.current = no.lionflow.app.model.Brand.of(it.brand) })
     val state: StateFlow<AppSettings> = _state.asStateFlow()
     val value: AppSettings get() = _state.value
