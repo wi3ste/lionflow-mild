@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import no.lionflow.app.BuildConfig
 import no.lionflow.app.LionFlowApp
 import no.lionflow.app.api.AuthExpiredException
 import no.lionflow.app.api.Charger
@@ -27,6 +30,8 @@ import no.lionflow.app.api.CommandResult
 import no.lionflow.app.api.Tracker
 import no.lionflow.app.api.TripDiagnostics
 import no.lionflow.app.api.TripHistory
+import no.lionflow.app.api.TripInvestigationReport
+import no.lionflow.app.api.TripProbeCase
 import no.lionflow.app.api.NobilApi
 import no.lionflow.app.api.Vehicle
 import no.lionflow.app.api.Weather
@@ -40,6 +45,7 @@ import no.lionflow.app.model.VehicleStatus
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.time.Instant
 
 enum class Phase { Loading, SignedOut, SetupRemote, Locked, Ready }
 enum class Tab { Home, Charging, Map, Climate, Service, Trips, Settings }
@@ -79,6 +85,14 @@ data class UiState(
     val updateDismissed: Boolean = false,
     val vehicles: List<no.lionflow.app.api.Vehicle> = emptyList(),
 )
+
+internal data class TripInvestigationUi(
+    val test: TripProbeCase? = null,
+    val page: Int = 0,
+    val report: TripInvestigationReport? = null,
+)
+
+private const val TRIP_INVESTIGATION_RETRY_AT = "tripInvestigationRetryAt"
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val lf = app as LionFlowApp
@@ -165,7 +179,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var tripsDays = 30
     private var tripsJob: Job? = null
 
+    private val _tripInvestigation = MutableStateFlow(TripInvestigationUi())
+    internal val tripInvestigation = _tripInvestigation.asStateFlow()
+    private var tripInvestigationJob: Job? = null
+
     private fun resetTripLoad() {
+        tripInvestigationJob?.cancel()
+        tripInvestigationJob = null
+        _tripInvestigation.value = TripInvestigationUi()
         tripsJob?.cancel()
         tripsJob = null
         tripsDays = 30
@@ -1011,6 +1032,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.update { it.copy(tripsLoading = false, trips = it.trips.ifEmpty { loadImportedTrips() }) }
                 toast("Couldn't load trips — ${no.lionflow.app.api.Http.describe(e)}")
             }
+        }
+    }
+
+    internal fun runTripInvestigation() {
+        if (!BuildConfig.TRIP_API_DIAGNOSTICS || isDemo || tripInvestigationJob?.isActive == true) return
+        val vehicle = _ui.value.vehicle ?: return
+        val retryAt = runCatching { Instant.parse(settings.raw(TRIP_INVESTIGATION_RETRY_AT)) }.getOrNull()
+        if (retryAt != null && Instant.now() < retryAt) {
+            toast("Wait until the server's retry delay has passed.")
+            return
+        }
+
+        tripInvestigationJob = viewModelScope.launch {
+            try {
+                val report = api.tripInvestigation(vehicle).run { test, page ->
+                    _tripInvestigation.value = TripInvestigationUi(test = test, page = page)
+                }
+                report.retryAt?.let { settings.setRaw(TRIP_INVESTIGATION_RETRY_AT, it.toString()) }
+                _tripInvestigation.value = TripInvestigationUi(report = report)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _tripInvestigation.value = TripInvestigationUi()
+                toast("Trip API diagnostics could not finish.")
+            }
+        }
+    }
+
+    internal fun showTripInvestigationExportError() = toast("Could not export the diagnostic report.")
+
+    internal suspend fun exportTripInvestigation(): File? {
+        if (!BuildConfig.TRIP_API_DIAGNOSTICS) return null
+        val report = _tripInvestigation.value.report ?: return null
+        return withContext(Dispatchers.IO) {
+            val dir = File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
+            File(dir, "lionflow-trip-api-diagnostics.txt").apply { writeText(report.toText()) }
         }
     }
 

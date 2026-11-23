@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val tripApiDiagnostics = providers.gradleProperty("tripApiDiagnostics").map(String::toBoolean).getOrElse(false)
+
 val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 
 android {
@@ -13,6 +15,7 @@ android {
     defaultConfig {
         applicationId = "no.lionflow.app"
         minSdk = 26
+        buildConfigField("boolean", "TRIP_API_DIAGNOSTICS", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
         versionCode = buildNumber
@@ -46,6 +49,7 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("boolean", "TRIP_API_DIAGNOSTICS", tripApiDiagnostics.toString())
         }
     }
 
@@ -74,6 +78,7 @@ android {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)

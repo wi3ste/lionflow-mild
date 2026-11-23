@@ -11,7 +11,7 @@ import java.time.ZoneOffset
 /** Debug-only aggregate counts. Never include a payload, identifier, cursor, URL or exception message. */
 internal object TripDiagnostics {
     val logger: ((String) -> Unit)?
-        get() = if (BuildConfig.DEBUG) ({ line -> Log.i("LionFlowTrips", line); Unit }) else null
+        get() = if (BuildConfig.TRIP_API_DIAGNOSTICS) ({ line -> Log.i("LionFlowTrips", line); Unit }) else null
 
     fun date(millis: Long?): String =
         millis?.let { Instant.ofEpochMilli(it).atOffset(ZoneOffset.UTC).toLocalDate().toString() } ?: "-"

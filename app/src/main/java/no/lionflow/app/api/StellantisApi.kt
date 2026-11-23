@@ -252,10 +252,33 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
 
     /** One page of trips since the given ISO timestamp. */
     suspend fun trips(v: Vehicle, sinceIso: String?, pageToken: String? = null): JSONObject = authed { token ->
-        val url = "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}"
-            .toHttpUrl().withTripFilters(sinceIso, pageToken)
+        val url = tripsEndpoint(v).withTripFilters(sinceIso, pageToken)
         Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
             ?: throw ApiException(0, "Invalid trips response")
+    }
+
+    private fun tripsEndpoint(v: Vehicle): HttpUrl =
+        "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}".toHttpUrl()
+
+    internal fun tripInvestigation(v: Vehicle): TripInvestigation {
+        val currentProfile = profile
+        val endpoint = tripsEndpoint(v)
+        val realm = cfg.realm
+        return TripInvestigation(fetch = { query, cursor ->
+            val token = tokenLock.withLock {
+                if (profile != currentProfile) throw TripProbeSessionUnavailable()
+                val expires = secure.get(K_EXPIRES, currentProfile)?.toLongOrNull() ?: 0L
+                if (expires <= System.currentTimeMillis()) throw TripProbeSessionUnavailable()
+                secure.get(K_ACCESS, currentProfile) ?: throw TripProbeSessionUnavailable()
+            }
+            // The probe deliberately avoids authed(), which can refresh credentials via POST.
+            val request = Request.Builder().url(query.url(endpoint, cursor))
+                .header("Authorization", "Bearer $token")
+                .header("x-introspect-realm", realm)
+                .get()
+                .build()
+            TripProbeHttp.fetch(request)
+        })
     }
 
     // ---------------- remote control setup ----------------

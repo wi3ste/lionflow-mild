@@ -50,7 +50,7 @@ internal data class TripHistory(val trips: List<Trip>, val noTrips: Boolean = fa
                 for (row in rows?.objects().orEmpty()) {
                     val parsed = Trip.parse(row)
                     page?.inspect(row, parsed, requestCutoff.toEpochMilli())
-                    val trip = parsed.withStableId()
+                    val trip = identify(parsed)
                     if (trip == null) {
                         if (page != null) page.droppedUnidentifiable++
                         continue
@@ -86,7 +86,7 @@ internal data class TripHistory(val trips: List<Trip>, val noTrips: Boolean = fa
             throw ApiException(0, "Trips pagination exceeded $MAX_PAGES pages")
         }
 
-        private fun pageToken(href: String?): String? {
+        internal fun pageToken(href: String?): String? {
             if (href.isNullOrBlank()) return null
             return runCatching {
                 URI(href).rawQuery?.split('&')?.firstNotNullOfOrNull { parameter ->
@@ -96,11 +96,11 @@ internal data class TripHistory(val trips: List<Trip>, val noTrips: Boolean = fa
             }.getOrNull()
         }
 
-        private fun Trip.withStableId(): Trip? {
-            if (id.isNotEmpty()) return this
-            if (startMillis == null && endMillis == null) return null
-            val key = listOf(startMillis, endMillis, distanceKm, durationSec).joinToString("|")
-            return copy(id = "anonymous-" + UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)))
+        internal fun identify(trip: Trip): Trip? {
+            if (trip.id.isNotEmpty()) return trip
+            if (trip.startMillis == null && trip.endMillis == null) return null
+            val key = listOf(trip.startMillis, trip.endMillis, trip.distanceKm, trip.durationSec).joinToString("|")
+            return trip.copy(id = "anonymous-" + UUID.nameUUIDFromBytes(key.toByteArray(Charsets.UTF_8)))
         }
     }
 }

@@ -206,6 +206,8 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             }
         }
 
+        if (BuildConfig.TRIP_API_DIAGNOSTICS) TripApiDiagnosticsSettings(vm, ui)
+
         RouteTrackingSettings(vm, s)
 
         SectionTitle("Chargers on the map")

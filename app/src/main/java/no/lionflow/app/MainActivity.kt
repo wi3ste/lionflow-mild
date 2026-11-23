@@ -26,7 +26,7 @@ interface Platform {
     fun authenticate(title: String, subtitle: String, onSuccess: () -> Unit, onFail: (String) -> Unit)
     fun openSignIn(url: String)
     fun requestLocation()
-    fun share(file: java.io.File, mime: String)
+    fun share(file: java.io.File, mime: String, title: String = "Export driving data")
     fun openUrl(url: String)
     fun openInstallPermission()
     fun setAlarm(hour: Int, minute: Int, message: String)
@@ -116,14 +116,14 @@ class MainActivity : FragmentActivity(), Platform {
         locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 
-    override fun share(file: java.io.File, mime: String) {
+    override fun share(file: java.io.File, mime: String, title: String) {
         val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mime
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        startActivity(Intent.createChooser(send, "Export driving data"))
+        startActivity(Intent.createChooser(send, title))
     }
 
     override fun setAlarm(hour: Int, minute: Int, message: String) {
