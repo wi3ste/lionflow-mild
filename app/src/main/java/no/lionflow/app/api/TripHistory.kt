@@ -22,9 +22,12 @@ internal data class TripHistory(val trips: List<Trip>, val noTrips: Boolean = fa
 
         suspend fun load(
             sinceMillis: Long,
+            audit: ((String) -> Unit)? = null,
             fetch: suspend (sinceIso: String, pageToken: String?) -> JSONObject,
         ): TripHistory {
-            val since = Instant.ofEpochMilli(sinceMillis).truncatedTo(ChronoUnit.SECONDS).toString()
+            val requestCutoff = Instant.ofEpochMilli(sinceMillis).truncatedTo(ChronoUnit.SECONDS)
+            val since = requestCutoff.toString()
+            audit?.invoke("request sinceUtc=${TripDiagnostics.date(requestCutoff.toEpochMilli())} upperBound=open pageSize=60 minDistanceKm=0.1")
             val trips = linkedMapOf<String, Trip>()
             val seenTokens = mutableSetOf<String>()
             var token: String? = null
@@ -32,24 +35,54 @@ internal data class TripHistory(val trips: List<Trip>, val noTrips: Boolean = fa
                 val response = try {
                     fetch(since, token)
                 } catch (e: ApiException) {
+                    audit?.invoke("stop=requestFailed page=${index + 1} http=${e.code} retained=${trips.size}")
                     if (index == 0 && e.code == 404) return TripHistory(emptyList(), noTrips = true)
                     throw e
                 }
 
-                for (row in response.obj("_embedded")?.optJSONArray("trips")?.objects().orEmpty()) {
-                    val trip = Trip.parse(row).withStableId() ?: continue
+                val rows = response.obj("_embedded")?.optJSONArray("trips")
+                val page = audit?.let {
+                    TripDiagnostics.Page().apply {
+                        hasTripArray = rows != null
+                        raw = rows?.length() ?: 0
+                    }
+                }
+                for (row in rows?.objects().orEmpty()) {
+                    val parsed = Trip.parse(row)
+                    page?.inspect(row, parsed, requestCutoff.toEpochMilli())
+                    val trip = parsed.withStableId()
+                    if (trip == null) {
+                        if (page != null) page.droppedUnidentifiable++
+                        continue
+                    }
                     val previous = trips[trip.id]
+                    if (previous != null && page != null) {
+                        if (parsed.id.isEmpty()) page.duplicateAnonymous++ else page.duplicateIds++
+                    }
                     if (previous == null || (previous.startMillis == null && trip.startMillis != null)) {
                         trips[trip.id] = trip
                     }
                 }
-                val next = response.obj("_links", "next") ?: return TripHistory(
-                    trips.values.sortedByDescending { it.startMillis ?: Long.MIN_VALUE },
-                )
-                val nextToken = pageToken(next.str("href")) ?: throw ApiException(0, "Invalid trips pagination link")
-                if (!seenTokens.add(nextToken)) throw ApiException(0, "Repeated trips pagination token")
+                val next = response.obj("_links", "next")
+                if (audit != null && page != null) audit(page.line(index + 1, next != null))
+                if (next == null) {
+                    val sorted = trips.values.sortedByDescending { it.startMillis ?: Long.MIN_VALUE }
+                    audit?.invoke("stop=lastPage pages=${index + 1} retained=${sorted.size} " +
+                        "retainedWithoutDate=${sorted.count { it.startMillis == null }} ${TripDiagnostics.dateRange(sorted)}")
+                    return TripHistory(sorted)
+                }
+                val nextToken = pageToken(next.str("href"))
+                if (nextToken == null) {
+                    audit?.invoke("stop=invalidCursor page=${index + 1} retained=${trips.size}")
+                    throw ApiException(0, "Invalid trips pagination link")
+                }
+                if (!seenTokens.add(nextToken)) {
+                    audit?.invoke("stop=repeatedCursor page=${index + 1} retained=${trips.size}")
+                    throw ApiException(0, "Repeated trips pagination token")
+                }
                 token = nextToken
             }
+            audit?.invoke("stop=pageLimit pages=$MAX_PAGES retained=${trips.size}")
             throw ApiException(0, "Trips pagination exceeded $MAX_PAGES pages")
         }
 

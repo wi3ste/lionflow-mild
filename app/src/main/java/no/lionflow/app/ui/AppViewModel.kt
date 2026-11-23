@@ -24,6 +24,7 @@ import no.lionflow.app.api.AuthExpiredException
 import no.lionflow.app.api.Charger
 import no.lionflow.app.api.CommandResult
 import no.lionflow.app.api.Tracker
+import no.lionflow.app.api.TripDiagnostics
 import no.lionflow.app.api.TripHistory
 import no.lionflow.app.api.NobilApi
 import no.lionflow.app.api.Vehicle
@@ -971,16 +972,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(tripsLoading = true) }
             try {
                 val since = TripHistory.cutoff(System.currentTimeMillis(), days)
-                val result = TripHistory.load(since) { sinceIso, token -> api.trips(v, sinceIso, token) }
+                val audit = TripDiagnostics.logger
+                val result = TripHistory.load(since, audit) { sinceIso, token -> api.trips(v, sinceIso, token) }
                 if (!isCurrent()) return@launch
                 tripsNone = result.noTrips
-                val merged = (result.trips + loadImportedTrips()).distinctBy { it.id }.sortedByDescending { it.startMillis ?: 0L }
+                val imported = loadImportedTrips()
+                val merged = (result.trips + imported).distinctBy { it.id }.sortedByDescending { it.startMillis ?: 0L }
+                audit?.invoke("merge api=${result.trips.size} imported=${imported.size} stored=${merged.size} " +
+                    "mergeDuplicates=${result.trips.size + imported.size - merged.size} ${TripDiagnostics.dateRange(merged)}")
                 _ui.update { it.copy(trips = merged, tripsLoading = false) }
                 autoTagNow()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (!isCurrent()) return@launch
+                TripDiagnostics.logger?.invoke("syncFailed apiCode=${(e as? no.lionflow.app.api.ApiException)?.code ?: "-"}")
                 _ui.update { it.copy(tripsLoading = false, trips = it.trips.ifEmpty { loadImportedTrips() }) }
                 toast("Couldn't load trips — ${no.lionflow.app.api.Http.describe(e)}")
             }
