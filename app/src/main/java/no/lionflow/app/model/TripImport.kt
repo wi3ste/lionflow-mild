@@ -46,15 +46,25 @@ object TripImport {
         endMillis = o.optLong("end").takeIf { it > 0 },
         distanceKm = o.optDouble("km", 0.0),
         durationSec = o.optDouble("min", 0.0) * 60,
-        kwh = o.optDouble("kwh", 0.0).takeIf { it > 0 },
-        avgKwhPer100 = o.optDouble("avg", 0.0).takeIf { it > 0 },
+        kwh = o.electric("kwh"),
+        avgKwhPer100 = o.electric("avg"),
         avgSpeedKmh = o.optDouble("speed", 0.0).takeIf { it > 0 },
-        liters = fuel(o.optDouble("liters")),
-        avgLPer100 = fuel(o.optDouble("avgL")),
+        liters = nonNegative(o.optDouble("liters")),
+        avgLPer100 = nonNegative(o.optDouble("avgL")),
         fuelUnitsEstimated = o.optBoolean("fuelUnitsEstimated"),
     )
 
-    private fun fuel(value: Double?): Double? = value?.takeIf { it.isFinite() && it >= 0 }
+    private fun nonNegative(value: Double?): Double? = value?.takeIf { it.isFinite() && it >= 0 }
+
+    // Older imports stored missing electric readings as 0. Mark an explicit zero in new imports.
+    private fun JSONObject.electric(key: String): Double? =
+        nonNegative(optDouble(key))?.takeIf { it > 0 || optBoolean("explicitElectricZero") }
+
+    private fun JSONObject.putElectric(kwh: Double?, rate: Double?) {
+        nonNegative(kwh)?.let { put("kwh", it) }
+        nonNegative(rate)?.let { put("avg", it) }
+        if (kwh == 0.0 || rate == 0.0) put("explicitElectricZero", true)
+    }
 
     fun merge(reported: List<Trip>, imported: List<Trip>): List<Trip> {
         val byId = imported.associateBy { it.id }
@@ -106,7 +116,8 @@ object TripImport {
                 val end = secOrMs(o, "endDateTime", "endDate", "end")
                     ?: o.optDouble("duration", Double.NaN).takeIf { !it.isNaN() }?.let { start + (it * 1000).toLong() }
                     ?: start
-                val kwh = listOf("electricConsumption", "consumptionElectric", "energyConsumption").firstNotNullOfOrNull { key -> o.optDouble(key, Double.NaN).takeIf { !it.isNaN() } } ?: 0.0
+                val kwh = listOf("electricConsumption", "consumptionElectric", "energyConsumption")
+                    .firstNotNullOfOrNull { key -> nonNegative(o.optDouble(key)) }
                 out += Row(store("myp-$vin-${o.opt("id") ?: start}", start, end, km, kwh), null)
             }
         }
@@ -159,10 +170,11 @@ object TripImport {
             val km = num(c.getOrNull(iKm)) ?: continue
             val dur = c.getOrNull(iDur)?.let { minutes(it) }
             val end = c.getOrNull(iEnd)?.let { date(it) } ?: dur?.let { start + (it * 60_000).toLong() } ?: start
-            val kwh = num(c.getOrNull(iKwh)) ?: num(c.getOrNull(iAvg))?.let { it * km / 100 } ?: 0.0
-            val trip = store("csv-$start-${(km * 10).toLong()}", start, end, km, kwh)
-            fuel(num(c.getOrNull(iLiters)))?.let { trip.put("liters", it) }
-            fuel(num(c.getOrNull(iFuelAvg)))?.let { trip.put("avgL", it) }
+            val rate = nonNegative(num(c.getOrNull(iAvg)))
+            val kwh = nonNegative(num(c.getOrNull(iKwh))) ?: rate?.takeIf { km > 0 }?.let { it * km / 100 }
+            val trip = store("csv-$start-${(km * 10).toLong()}", start, end, km, kwh, rate)
+            nonNegative(num(c.getOrNull(iLiters)))?.let { trip.put("liters", it) }
+            nonNegative(num(c.getOrNull(iFuelAvg)))?.let { trip.put("avgL", it) }
             out += Row(trip, null)
         }
         return out
@@ -175,19 +187,19 @@ object TripImport {
         val end = c.getOrNull(2)?.let { try { iso.parse(it)?.time } catch (_: Exception) { null } } ?: 0L
         val j = JSONObject().put("id", c[0].ifEmpty { "imp-" + System.nanoTime() }).put("start", start).put("end", end)
             .put("km", c.getOrNull(3)?.toDoubleOrNull() ?: 0.0).put("min", c.getOrNull(4)?.toDoubleOrNull() ?: 0.0)
-            .put("kwh", c.getOrNull(5)?.toDoubleOrNull() ?: 0.0).put("avg", c.getOrNull(6)?.toDoubleOrNull() ?: 0.0)
             .put("speed", c.getOrNull(7)?.toDoubleOrNull() ?: 0.0)
-        fuel(c.getOrNull(fuelIndices[0])?.toDoubleOrNull())?.let { j.put("liters", it) }
-        fuel(c.getOrNull(fuelIndices[1])?.toDoubleOrNull())?.let { j.put("avgL", it) }
+        j.putElectric(c.getOrNull(5)?.toDoubleOrNull(), c.getOrNull(6)?.toDoubleOrNull())
+        nonNegative(c.getOrNull(fuelIndices[0])?.toDoubleOrNull())?.let { j.put("liters", it) }
+        nonNegative(c.getOrNull(fuelIndices[1])?.toDoubleOrNull())?.let { j.put("avgL", it) }
         if (c.getOrNull(fuelIndices[2]).equals("true", ignoreCase = true)) j.put("fuelUnitsEstimated", true)
         return Row(j, c.getOrNull(8)?.trim()?.takeIf { it.isNotEmpty() })
     }
 
-    private fun store(id: String, start: Long, end: Long, km: Double, kwh: Double): JSONObject {
+    private fun store(id: String, start: Long, end: Long, km: Double, kwh: Double?, rate: Double? = null): JSONObject {
         val min = ((end - start) / 60_000.0).coerceAtLeast(0.0)
         return JSONObject().put("id", id).put("start", start).put("end", end).put("km", km).put("min", min)
-            .put("kwh", kwh).put("avg", if (km > 0 && kwh > 0) kwh / km * 100 else 0.0)
             .put("speed", if (min > 0) km / (min / 60) else 0.0)
+            .apply { putElectric(kwh, rate ?: kwh?.takeIf { km > 0 }?.let { it / km * 100 }) }
     }
 
     private fun split(line: String, sep: Char): List<String> {

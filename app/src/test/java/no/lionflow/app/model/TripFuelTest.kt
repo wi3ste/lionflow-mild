@@ -116,6 +116,19 @@ class TripFuelTest {
         assertFalse(trip.fuelUnitsEstimated)
     }
 
+    @Test fun csvKeepsExplicitElectricZeroSeparateFromMissingReadings() {
+        val zero = apiTrip("""{"type":"Electric","consumption":0,"avgConsumption":0}""")
+        val trips = listOf(zero.copy(id = "zero-total", avgKwhPer100 = null), zero.copy(id = "zero-rate", kwh = null))
+        val restored = TripImport.parse(TripImport.csv(trips) { null }).map { TripImport.restore(it.json) }
+        assertEquals(0.0, restored[0].kwh)
+        assertNull(restored[0].avgKwhPer100)
+        assertNull(restored[1].kwh)
+        assertEquals(0.0, restored[1].avgKwhPer100)
+        val legacy = TripImport.restore(JSONObject("""{"id":"legacy","kwh":0,"avg":0}"""))
+        assertNull(legacy.kwh)
+        assertNull(legacy.avgKwhPer100)
+    }
+
     @Test fun csvAndCarReportsDoNotDoubleCountTheSameDrive() {
         val online = Trip("server", 60_000L, 660_000L, 20.04, 600.0, null, null, null)
         val csv = online.copy(id = "csv", distanceKm = 20.0, liters = 1.2, avgLPer100 = 6.0)
