@@ -137,7 +137,6 @@ fun RouteTrackingSettings(vm: AppViewModel, s: AppSettings) {
 @SuppressLint("MissingPermission")
 @Composable
 private fun BluetoothPicker(onDismiss: () -> Unit, onPick: (String, String) -> Unit) {
-    val c = LocalLf.current
     val ctx = LocalContext.current
     val devices = remember {
         try {
@@ -145,6 +144,16 @@ private fun BluetoothPicker(onDismiss: () -> Unit, onPick: (String, String) -> U
                 .map { it.address to (it.name ?: it.address) }.sortedBy { it.second.lowercase() }
         } catch (_: Exception) { emptyList() }
     }
+    BluetoothDeviceDialog(devices, onDismiss, onPick)
+}
+
+@Composable
+internal fun BluetoothDeviceDialog(
+    devices: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onPick: (String, String) -> Unit,
+) {
+    val c = LocalLf.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Choose your car") },
