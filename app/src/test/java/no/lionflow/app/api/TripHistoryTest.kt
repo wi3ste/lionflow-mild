@@ -2,6 +2,7 @@ package no.lionflow.app.api
 
 import kotlinx.coroutines.runBlocking
 import no.lionflow.app.model.Trip
+import no.lionflow.app.model.TripImport
 import no.lionflow.app.model.VehicleStatus
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
@@ -82,6 +83,31 @@ class TripHistoryTest {
         assertEquals("reuse", trips.last().id)
         assertEquals(Trip.idOf(anonymous), trips[2].id)
         assertNotEquals(trips[1].id, trips[2].id)
+    }
+
+    @Test fun exportsTheSecondPageOfAnOlderWeekWhenTheServerLinksIt() = runBlocking {
+        val exportAt = Instant.parse("2026-11-23T14:34:00Z")
+        val requestedFrom = exportAt.minusSeconds(30 * 86_400L)
+        val weekStart = exportAt.minusSeconds(21 * 86_400L)
+        val weekEnd = exportAt.minusSeconds(14 * 86_400L)
+        val firstPage = List(60) { i ->
+            row("first-$i", weekEnd.minusSeconds(60L + i), km = if (i < 3) 0 else 1)
+        }
+        val overflow = listOf("2026-11-08T12:00:00Z", "2026-11-08T16:00:00Z",
+            "2026-11-08T19:00:00Z", "2026-11-09T10:00:00Z")
+            .mapIndexed { i, start -> row("next-$i", Instant.parse(start)) }
+        val result = loadWeeklyTrips(requestedFrom.toEpochMilli(), exportAt.toEpochMilli()) { start, end, next ->
+            if (start != weekStart.toString()) page(emptyList())
+            else {
+                assertEquals(weekEnd.toString(), end)
+                if (next == null) page(firstPage, "?pageToken=overflow") else page(overflow)
+            }
+        }
+        val trips = result.trips.map { Trip.parse(it) }
+        val restored = TripImport.parse(TripImport.csv(trips) { null }).map { TripImport.restore(it.json) }
+        assertEquals(64, restored.size)
+        assertEquals(3, restored.count { it.distanceKm == 0.0 })
+        assertEquals(listOf("next-3", "next-2", "next-1", "next-0"), restored.takeLast(4).map { it.id })
     }
 
     private fun row(id: String?, start: Instant, km: Int = 1): JSONObject = JSONObject()
