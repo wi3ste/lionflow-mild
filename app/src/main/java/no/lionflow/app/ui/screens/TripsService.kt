@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import no.lionflow.app.api.TripDiagnostics
 import no.lionflow.app.api.TripHistory
 import no.lionflow.app.data.AppSettings
 import no.lionflow.app.ui.AppViewModel
@@ -84,6 +85,16 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
     val list = TripHistory.inPeriod(ui.trips, now, days)
     var visibleTrips by remember(period) { mutableStateOf(50) }
     val mildHybrid = ui.status?.isMildHybrid == true
+    LaunchedEffect(days, ui.trips, list, visibleTrips, ui.tripsLoading) {
+        if (!ui.tripsLoading && !vm.isDemo) TripDiagnostics.logger?.invoke(
+            "ui days=$days cutoffUtc=${TripDiagnostics.date(since)} " +
+                "stored=${ui.trips.size} inPeriod=${list.size} hiddenByPeriod=${ui.trips.size - list.size} " +
+                "withoutStart=${ui.trips.count { it.startMillis == null }} " +
+                "beforeCutoff=${ui.trips.count { start -> start.startMillis?.let { it < since } == true }} " +
+                "future=${ui.trips.count { start -> start.startMillis?.let { it > now } == true }} " +
+                "rows=${minOf(visibleTrips, list.size)} ${TripDiagnostics.dateRange(list)}",
+        )
+    }
     val km = list.sumOf { it.distanceKm }
     val kwh = list.mapNotNull { it.kwh }.sum()
     val avg = if (km > 0 && kwh > 0) kwh / km * 100 else null
