@@ -140,7 +140,11 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     vm.setMildHybridOverride(override)
                 }
                 if (detection == MildHybridDetection.InsufficientMetadata) {
-                    val motorization = if (vehicle.motorization.isBlank()) "Motorization missing" else "Motorization present"
+                    val motorization = when {
+                        vehicle.motorization.isBlank() -> "Motorization missing"
+                        vehicle.motorization.equals("Hybrid", ignoreCase = true) -> "Generic hybrid motorization"
+                        else -> "Motorization inconclusive"
+                    }
                     val label = if (vehicle.modelLabel.isNullOrBlank() && vehicle.legacyLabel.isNullOrBlank()) {
                         "Model name missing"
                     } else "Model name present"
@@ -149,7 +153,12 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                         false -> "typeVehicle missing"
                         null -> "typeVehicle not checked"
                     }
-                    Text("$motorization · $label · $type", style = Type.tiny, color = c.muted,
+                    val detail = when (vehicle.brandingDetailReceived) {
+                        true -> "Vehicle details checked"
+                        false -> "Vehicle details unavailable"
+                        null -> "Vehicle details not checked"
+                    }
+                    Text("$motorization · $label · $type\n$detail", style = Type.tiny, color = c.muted,
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp))
                 }
             }
@@ -159,8 +168,10 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             Text("Another brand (for example Citroën next to Peugeot) needs its own sign-in. Your other accounts stay signed in.", style = Type.tiny, color = c.muted,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp))
             Divider()
-            Text("Reload cars from MyPeugeot", style = Type.small.copy(fontWeight = FontWeight.SemiBold), color = c.accentInk,
-                modifier = Modifier.fillMaxWidth().clickable { vm.reloadVehicles() }.padding(horizontal = 16.dp, vertical = 12.dp))
+            Text(if (ui.reloadingVehicles) "Reloading cars…" else "Reload cars from MyPeugeot",
+                style = Type.small.copy(fontWeight = FontWeight.SemiBold), color = c.accentInk,
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !ui.reloadingVehicles) { vm.reloadVehicles() }
+                    .padding(horizontal = 16.dp, vertical = 12.dp))
         }
 
         SectionTitle("Units")

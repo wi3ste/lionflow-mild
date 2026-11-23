@@ -63,6 +63,7 @@ data class UiState(
     /** The carmaker has no live status for this car (common on older petrol/diesel cars); trips etc. still work. */
     val statusMissing: Boolean = false,
     val refreshing: Boolean = false,
+    val reloadingVehicles: Boolean = false,
     val lastRefresh: Long = 0L,
     val now: Long = System.currentTimeMillis(),
     val weather: Weather? = null,
@@ -361,11 +362,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Reload the car list (e.g. after adding a car in MyPeugeot). */
     fun reloadVehicles() = viewModelScope.launch {
+        if (_ui.value.reloadingVehicles) return@launch
+        _ui.update { it.copy(reloadingVehicles = true) }
         val profile = api.profile
         try {
             vehicleMetadataLock.withLock {
                 if (profile != api.profile) return@withLock
-                val all = api.vehicles()
+                val all = api.vehicles(checkSelectedBranding = true)
                 if (profile != api.profile) return@withLock
                 val vehicle = api.pick(all)
                 vehicle?.let { brandingAttempts.add(profile to it.vin) }
@@ -373,7 +376,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) { toast("Couldn't load your cars — ${no.lionflow.app.api.Http.describe(e)}") }
+        } catch (e: Exception) {
+            if (profile == api.profile) toast("Couldn't load your cars — ${no.lionflow.app.api.Http.describe(e)}")
+        } finally {
+            if (profile == api.profile) _ui.update { it.copy(reloadingVehicles = false) }
+        }
     }
 
     private fun applyVehicleMetadata(all: List<Vehicle>, vehicle: Vehicle?) {
@@ -607,7 +614,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (!current.needsBranding || settings.mildHybridOverride(current.vin) != null ||
                 !brandingAttempts.add(profile to current.vin)) return@withLock current
             val all = try {
-                api.vehicles()
+                api.vehicles(checkSelectedBranding = true)
             } catch (e: AuthExpiredException) {
                 throw e
             } catch (e: CancellationException) {

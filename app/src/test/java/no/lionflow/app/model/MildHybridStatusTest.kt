@@ -163,6 +163,44 @@ class MildHybridStatusTest {
         assertTrue(cached.needsBranding)
     }
 
+    @Test fun detailCanRecognizeAStyleMissingFromTheVehicleList() {
+        val listed = Vehicle.fromApi(apiVehicle(), "Peugeot")
+        assertNull(listed.brandingDetailReceived)
+        assertTrue(listed.needsBranding)
+
+        val detail = JSONObject("""{
+            "_embedded":{"extension":{"branding":{"label":"208 5P - STYLE HYBRID 100 E-DCS6"}}}
+        }""")
+        val detailed = Vehicle.fromJson(listed.withBrandingDetail(detail).toJson())
+        assertEquals(MildHybridDetection.ModelName, detailed.mildHybridDetection)
+        assertEquals(true, detailed.brandingDetailReceived)
+        assertFalse(detailed.needsBranding)
+        assertEquals(listed.motorization, detailed.motorization)
+        assertEquals(listed.id, detailed.id)
+    }
+
+    @Test fun unavailableOrInconclusiveDetailsLeaveAutomaticUnclassified() {
+        val listed = Vehicle.fromApi(apiVehicle(), "Peugeot")
+        val inconclusive = listed.withBrandingDetail(JSONObject().put("typeVehicle", 5))
+        assertEquals(true, inconclusive.brandingDetailReceived)
+        assertEquals(true, inconclusive.typeVehicleReported)
+        assertFalse(inconclusive.reportsMildHybrid)
+        assertTrue(inconclusive.needsBranding)
+
+        val label = "208 5P - STYLE HYBRID 100 E-DCS6"
+        val unavailable = listOf(
+            null,
+            apiVehicle(label = label).put("id", "different-vehicle"),
+            apiVehicle(label = label).put("vin", "different-vin"),
+        )
+        for (detail in unavailable) {
+            val checked = Vehicle.fromJson(listed.withBrandingDetail(detail).toJson())
+            assertEquals(false, checked.brandingDetailReceived)
+            assertFalse(checked.reportsMildHybrid)
+            assertTrue(checked.needsBranding)
+        }
+    }
+
     @Test fun automaticOnAndOffPersistIndependentlyForEachVehicle() {
         val recognized = Vehicle.fromApi(apiVehicle("MHEV"), "Other")
         val ambiguous = Vehicle.fromApi(apiVehicle(), "Other").copy(vin = "synthetic-other")

@@ -13,7 +13,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
 import java.util.Locale
 
@@ -77,6 +79,7 @@ data class Vehicle(
     val modelLabel: String? = null,
     internal val legacyLabel: String? = null,
     internal val typeVehicleReported: Boolean? = null,
+    internal val brandingDetailReceived: Boolean? = null,
 ) {
     internal val needsBranding: Boolean
         get() = (brand.isBlank() || brand.equals("Peugeot", ignoreCase = true)) &&
@@ -108,6 +111,32 @@ data class Vehicle(
         modelLabel?.let { put("modelLabel", it) }
         legacyLabel?.let { put("legacyLabel", it) }
         typeVehicleReported?.let { put("typeVehicleReported", it) }
+        brandingDetailReceived?.let { put("brandingDetailReceived", it) }
+    }
+
+    internal fun withBrandingDetail(j: JSONObject?): Vehicle {
+        if (j == null || j.metadataString("id")?.let { it != id } == true ||
+            j.metadataString("vin")?.let { it != vin } == true) {
+            return copy(brandingDetailReceived = false)
+        }
+        return withBranding(j).copy(brandingDetailReceived = true)
+    }
+
+    private fun withBranding(j: JSONObject): Vehicle {
+        val extension = j.obj("_embedded", "extension")
+        val branding = extension?.optJSONObject("branding")
+        val brandingLabel = branding?.metadataString("label")
+        val label = j.metadataString("label")
+        return copy(
+            motorization = j.metadataString("motorization") ?: motorization,
+            brand = branding?.metadataString("brand") ?: j.metadataString("brand") ?: brand,
+            modelLabel = brandingLabel ?: label ?: modelLabel,
+            legacyLabel = if (brandingLabel == null && label == null) legacyLabel
+                else label?.takeIf { brandingLabel != null && it != brandingLabel },
+            // Keep only the presence of the undocumented field across both responses.
+            typeVehicleReported = typeVehicleReported == true ||
+                listOfNotNull(j, extension, branding).any { !it.isNull("typeVehicle") },
+        )
     }
 
     companion object {
@@ -135,26 +164,17 @@ data class Vehicle(
             modelLabel = j.metadataString("modelLabel"),
             legacyLabel = j.metadataString("legacyLabel"),
             typeVehicleReported = j.opt("typeVehicleReported") as? Boolean,
+            brandingDetailReceived = j.opt("brandingDetailReceived") as? Boolean,
         )
 
-        internal fun fromApi(j: JSONObject, defaultBrand: String): Vehicle {
-            val extension = j.obj("_embedded", "extension")
-            val branding = extension?.optJSONObject("branding")
-            val brandingLabel = branding?.metadataString("label")
-            val label = j.metadataString("label")
-            return Vehicle(
-                id = j.getString("id"),
-                vin = j.getString("vin"),
-                motorization = j.metadataString("motorization").orEmpty(),
-                brand = branding?.metadataString("brand") ?: j.metadataString("brand") ?: defaultBrand,
-                pictureUrl = j.optJSONArray("pictures")?.optString(0)?.ifEmpty { null },
-                maintenanceHref = j.obj("_links", "maintenance")?.str("href"),
-                modelLabel = brandingLabel ?: label,
-                legacyLabel = label?.takeIf { brandingLabel != null && it != brandingLabel },
-                // The public B2C schema does not define typeVehicle. Keep only its presence for diagnostics.
-                typeVehicleReported = listOfNotNull(j, extension, branding).any { !it.isNull("typeVehicle") },
-            )
-        }
+        internal fun fromApi(j: JSONObject, defaultBrand: String): Vehicle = Vehicle(
+            id = j.getString("id"),
+            vin = j.getString("vin"),
+            motorization = "",
+            brand = defaultBrand,
+            pictureUrl = j.optJSONArray("pictures")?.optString(0)?.ifEmpty { null },
+            maintenanceHref = j.obj("_links", "maintenance")?.str("href"),
+        ).withBranding(j)
     }
 }
 
@@ -253,20 +273,44 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
         customer
     }
 
-    suspend fun vehicles(): List<Vehicle> = authed { token ->
+    suspend fun vehicles(checkSelectedBranding: Boolean = false): List<Vehicle> {
         val requestProfile = profile
-        val defaultBrand = no.lionflow.app.model.Brands.current.display
-        val before = cachedVehiclesOf(requestProfile)
-        val url = "$API/connectedcar/v4/user/vehicles?${clientQuery()}&extension=branding"
-        val j = Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
-            ?: throw ApiException(0, "Empty vehicle list")
-        val list = j.obj("_embedded")?.optJSONArray("vehicles")?.objects().orEmpty().map { v ->
-            Vehicle.fromApi(v, defaultBrand)
+        return authed { token ->
+            if (profile != requestProfile) return@authed cachedVehiclesOf(requestProfile)
+            val defaultBrand = no.lionflow.app.model.Brands.current.display
+            val before = cachedVehiclesOf(requestProfile)
+            val url = "$API/connectedcar/v4/user/vehicles?${clientQuery()}&extension=branding".toHttpUrl()
+            val j = Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
+                ?: throw ApiException(0, "Empty vehicle list")
+            val list = j.obj("_embedded")?.optJSONArray("vehicles")?.objects().orEmpty()
+                .map { Vehicle.fromApi(it, defaultBrand) }
+                // The same car can come twice (for example when it is shared with another account): keep the one in use.
+                .groupBy { it.vin }.values.map { same ->
+                    same.firstOrNull { v -> before.any { it.id == v.id } } ?: same.first()
+                }
+            if (profile != requestProfile) return@authed list
+            val selected = if (checkSelectedBranding) pick(list)?.takeIf {
+                it.mildHybridDetection == MildHybridDetection.InsufficientMetadata
+            } else null
+            val updated = if (selected == null) list else {
+                val detailUrl = url.newBuilder().addPathSegment(selected.id).build()
+                val request = carHeaders(Request.Builder().url(detailUrl), token).get().build()
+                val detailed = selected.withBrandingDetail(optionalBrandingDetail(request))
+                list.map { if (it === selected) detailed else it }
+            }
+            if (profile == requestProfile) secure.put(K_VEHICLES, JSONArray(updated.map { it.toJson() }).toString())
+            updated
         }
-            // The same car can come twice (for example when it is shared with another account): keep the one in use.
-            .groupBy { it.vin }.values.map { same -> same.firstOrNull { v -> before.any { it.id == v.id } } ?: same.first() }
-        if (profile == requestProfile) secure.put(K_VEHICLES, JSONArray(list.map { it.toJson() }).toString())
-        list
+    }
+
+    private suspend fun optionalBrandingDetail(request: Request): JSONObject? = try {
+        Http.json(request) as? JSONObject
+    } catch (_: ApiException) {
+        null
+    } catch (_: IOException) {
+        null
+    } catch (_: JSONException) {
+        null
     }
 
     /** Cars cached for another account (used by the car list in Settings). */
