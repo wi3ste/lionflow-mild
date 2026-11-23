@@ -65,8 +65,29 @@ class MildHybridStatusTest {
     @Test fun metadataMustBeExplicitForAutomaticMode() {
         val vehicle = Vehicle("vehicle", "synthetic", "Hybrid", "Peugeot", null, null)
         assertFalse(vehicle.reportsMildHybrid)
+        assertFalse(vehicle.copy(motorization = "Electric").reportsMildHybrid)
+        assertFalse(vehicle.copy(motorization = "Thermic").reportsMildHybrid)
         assertFalse(vehicle.copy(motorization = "PHEV").reportsMildHybrid)
         assertTrue(vehicle.copy(motorization = "MHEV").reportsMildHybrid)
         assertTrue(vehicle.copy(motorization = "48 V Mild hybrid").reportsMildHybrid)
+        assertFalse(Vehicle.fromJson(vehicle.toJson()).reportsMildHybrid)
+    }
+
+    @Test fun readsAndCachesTheSpecificPeugeotHybridVersion() {
+        val payload = JSONObject("""{
+            "id":"vehicle","vin":"synthetic","motorization":"Hybrid",
+            "_embedded":{"extension":{"branding":{"brand":"Peugeot","label":"208 Hybrid 100 e-DCS6 Allure"}}}
+        }""")
+        val vehicle = Vehicle.fromApi(payload, "Other")
+        assertTrue(vehicle.reportsMildHybrid)
+        assertTrue(Vehicle.fromJson(vehicle.toJson()).reportsMildHybrid)
+        assertFalse(vehicle.copy(modelLabel = "208 Hybrid").reportsMildHybrid)
+        assertFalse(vehicle.copy(modelLabel = "308 Hybrid 180 e-EAT8").reportsMildHybrid)
+        assertFalse(vehicle.copy(motorization = "PHEV").reportsMildHybrid)
+        assertFalse(vehicle.copy(brand = "Other").reportsMildHybrid)
+        assertTrue(Vehicle.fromApi(JSONObject("""{
+            "id":"vehicle","vin":"synthetic","motorization":"Hybrid","brand":"Peugeot",
+            "label":"208 Hybrid 100 eDCS6"
+        }"""), "Other").reportsMildHybrid)
     }
 }

@@ -16,6 +16,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.util.Locale
 
 data class BrandConfig(
     val oauthUrl: String,
@@ -70,23 +71,48 @@ data class Vehicle(
     val brand: String,
     val pictureUrl: String?,
     val maintenanceHref: String?,
+    val modelLabel: String? = null,
 ) {
     val reportsMildHybrid: Boolean
-        get() = motorization.filter(Char::isLetterOrDigit).lowercase() in
-            setOf("mhev", "mildhybrid", "mildhybridelectricvehicle", "48vmildhybrid")
+        get() {
+            val powertrain = motorization.filter(Char::isLetterOrDigit).lowercase(Locale.ROOT)
+            if (powertrain in mildHybridMotorizations) return true
+            // Peugeot's 208 Hybrid 100 e-DCS6 is a 48 V model. "Hybrid" or "208" alone is ambiguous.
+            return powertrain == "hybrid" && brand.equals("Peugeot", ignoreCase = true) &&
+                modelLabel?.let { hybrid208.containsMatchIn(it) } == true
+        }
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("vin", vin); put("motorization", motorization); put("brand", brand)
         put("picture", pictureUrl ?: ""); put("maintenance", maintenanceHref ?: "")
+        modelLabel?.let { put("modelLabel", it) }
     }
 
     companion object {
+        private val mildHybridMotorizations = setOf("mhev", "mildhybrid", "mildhybridelectricvehicle", "48vmildhybrid")
+        private val hybrid208 = Regex("""\b208\s+hybrid\s+100\s+e[-‐‑– ]?dcs\s*6\b""", RegexOption.IGNORE_CASE)
+
         fun fromJson(j: JSONObject) = Vehicle(
             id = j.getString("id"), vin = j.getString("vin"),
             motorization = j.optString("motorization"), brand = j.optString("brand"),
             pictureUrl = j.optString("picture").ifEmpty { null },
             maintenanceHref = j.optString("maintenance").ifEmpty { null },
+            modelLabel = j.str("modelLabel"),
         )
+
+        internal fun fromApi(j: JSONObject, defaultBrand: String): Vehicle {
+            val extension = j.obj("_embedded", "extension")
+            val branding = extension?.optJSONObject("branding")
+            return Vehicle(
+                id = j.getString("id"),
+                vin = j.getString("vin"),
+                motorization = j.optString("motorization"),
+                brand = branding?.str("brand")?.ifBlank { null } ?: j.optString("brand", defaultBrand),
+                pictureUrl = j.optJSONArray("pictures")?.optString(0)?.ifEmpty { null },
+                maintenanceHref = j.obj("_links", "maintenance")?.str("href"),
+                modelLabel = branding?.str("label")?.ifBlank { null } ?: j.str("label"),
+            )
+        }
     }
 }
 
@@ -186,19 +212,12 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     }
 
     suspend fun vehicles(): List<Vehicle> = authed { token ->
-        val url = "$API/connectedcar/v4/user/vehicles?${clientQuery()}"
+        val url = "$API/connectedcar/v4/user/vehicles?${clientQuery()}&extension=branding"
         val j = Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
             ?: throw ApiException(0, "Empty vehicle list")
         val before = cachedVehicles()
         val list = j.obj("_embedded")?.optJSONArray("vehicles")?.objects().orEmpty().map { v ->
-            Vehicle(
-                id = v.getString("id"),
-                vin = v.getString("vin"),
-                motorization = v.optString("motorization"),
-                brand = v.optString("brand", no.lionflow.app.model.Brands.current.display),
-                pictureUrl = v.optJSONArray("pictures")?.optString(0)?.ifEmpty { null },
-                maintenanceHref = v.obj("_links", "maintenance")?.str("href"),
-            )
+            Vehicle.fromApi(v, no.lionflow.app.model.Brands.current.display)
         }
             // The same car can come twice (for example when it is shared with another account): keep the one in use.
             .groupBy { it.vin }.values.map { same -> same.firstOrNull { v -> before.any { it.id == v.id } } ?: same.first() }
