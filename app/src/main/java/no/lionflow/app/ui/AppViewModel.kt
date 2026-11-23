@@ -36,6 +36,7 @@ import no.lionflow.app.api.toJson
 import no.lionflow.app.model.CarTrips
 import no.lionflow.app.model.Trip
 import no.lionflow.app.model.TripImport
+import no.lionflow.app.model.TripPeriod
 import no.lionflow.app.model.VehicleStatus
 import org.json.JSONArray
 import org.json.JSONObject
@@ -1039,7 +1040,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return viewModelScope.launch {
             _ui.update { it.copy(tripsLoading = true) }
             try {
-                val res = api.allTrips(v, System.currentTimeMillis() - days * 86_400_000L)
+                val now = System.currentTimeMillis()
+                val monthStart = TripPeriod(30, now).dayStarts.first()
+                val res = api.allTrips(v, minOf(now - days * 86_400_000L, monthStart))
                 val all = api.parseTrips(v, res.trips)
                 tripsNone = res.noneFound
                 if (tripsNone) remote.addLog("trips: the server says no trips were found")
