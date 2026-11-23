@@ -13,7 +13,6 @@ import no.lionflow.app.api.Tracker
 import no.lionflow.app.api.objects
 import no.lionflow.app.model.ChargeLog
 import no.lionflow.app.model.ChargePower
-import no.lionflow.app.model.Trip
 import no.lionflow.app.model.VehicleStatus
 import no.lionflow.app.ui.fmtDistance
 import no.lionflow.app.ui.l10n.tr
@@ -58,7 +57,7 @@ class WearService : WearableListenerService() {
         if (!app.api.isSignedIn) return JSONObject().put("error", tr("Open LionFlow to sign in"))
         return try {
             val v = app.api.currentVehicle() ?: return JSONObject().put("error", tr("No car on this account"))
-            val st = ChargePower.record(VehicleStatus.parse(app.api.status(v), null))
+            val st = ChargePower.record(app.api.readStatus(v))
             no.lionflow.app.widget.WidgetData.save(applicationContext, st)
             val s = app.settings.value
             val (today, yesterday) = try { distances(v) } catch (_: Exception) { null to null }
@@ -100,7 +99,7 @@ class WearService : WearableListenerService() {
         val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
         val todayStart = cal.timeInMillis
         val yStart = todayStart - 86_400_000L
-        val trips = app.api.allTrips(v, yStart).trips.map { Trip.parse(it) }
+        val trips = app.api.parseTrips(v, app.api.allTrips(v, yStart).trips)
         val uniq = trips.distinctBy { it.id }
         val today = uniq.filter { (it.startMillis ?: 0L) >= todayStart }.sumOf { it.distanceKm }
         val yesterday = uniq.filter { (it.startMillis ?: 0L) in yStart until todayStart }.sumOf { it.distanceKm }
@@ -124,7 +123,7 @@ class WearService : WearableListenerService() {
                     "lock" -> app.remote.lock(true, t)
                     "lights" -> app.remote.lights(t)
                     else -> {
-                        val st = try { app.api.currentVehicle()?.let { VehicleStatus.parse(app.api.status(it), null) } } catch (_: Exception) { null }
+                        val st = try { app.api.currentVehicle()?.let { app.api.readStatus(it) } } catch (_: Exception) { null }
                         app.remote.preconditioning(true, st?.programsJson() ?: JSONObject(), t)
                     }
                 }

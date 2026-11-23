@@ -268,7 +268,7 @@ class WidgetRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWor
             }
             try {
                 // Show what the servers already know straight away; only wake the car if that data is old.
-                var st = no.lionflow.app.model.ChargePower.record(VehicleStatus.parse(app.api.status(vehicle), null))
+                var st = no.lionflow.app.model.ChargePower.record(app.api.readStatus(vehicle))
                 explainer.cancel()
                 WidgetData.save(ctx, st)
                 val old = st.updatedAtMillis?.let { System.currentTimeMillis() - it > 5 * 60_000 } ?: true
@@ -276,7 +276,7 @@ class WidgetRefreshWorker(ctx: Context, params: WorkerParameters) : CoroutineWor
                     WidgetData.setRefresh(ctx, true, "Waking the car…")
                     try { no.lionflow.app.work.Waker.wake(app) } catch (_: Exception) { }
                     try {
-                        st = no.lionflow.app.model.ChargePower.record(VehicleStatus.parse(app.api.status(vehicle), null))
+                        st = no.lionflow.app.model.ChargePower.record(app.api.readStatus(vehicle))
                     } catch (_: Exception) { }
                     WidgetData.save(ctx, st)
                 }

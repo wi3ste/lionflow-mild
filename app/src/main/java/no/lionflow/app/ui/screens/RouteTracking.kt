@@ -17,6 +17,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -134,7 +137,6 @@ fun RouteTrackingSettings(vm: AppViewModel, s: AppSettings) {
 @SuppressLint("MissingPermission")
 @Composable
 private fun BluetoothPicker(onDismiss: () -> Unit, onPick: (String, String) -> Unit) {
-    val c = LocalLf.current
     val ctx = LocalContext.current
     val devices = remember {
         try {
@@ -142,14 +144,34 @@ private fun BluetoothPicker(onDismiss: () -> Unit, onPick: (String, String) -> U
                 .map { it.address to (it.name ?: it.address) }.sortedBy { it.second.lowercase() }
         } catch (_: Exception) { emptyList() }
     }
+    BluetoothDeviceDialog(devices, onDismiss, onPick)
+}
+
+@Composable
+internal fun BluetoothDeviceDialog(
+    devices: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onPick: (String, String) -> Unit,
+) {
+    val c = LocalLf.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Choose your car") },
         text = {
-            Column {
-                if (devices.isEmpty()) Text("No paired Bluetooth devices. Pair your phone with the car first.", style = Type.small, color = c.muted)
-                devices.forEach { (addr, name) ->
-                    Text(name, style = Type.body, color = c.text, modifier = Modifier.fillMaxWidth().clickable { onPick(addr, name) }.padding(vertical = 12.dp))
+            if (devices.isEmpty()) {
+                Text("No paired Bluetooth devices. Pair your phone with the car first.", style = Type.small, color = c.muted)
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                    items(devices, key = { it.first }) { (address, name) ->
+                        Text(
+                            name,
+                            style = Type.body,
+                            color = c.text,
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable { onPick(address, name) }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
                 }
             }
         },

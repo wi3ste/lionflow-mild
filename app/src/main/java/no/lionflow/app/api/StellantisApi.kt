@@ -8,6 +8,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import no.lionflow.app.data.SecureStore
 import no.lionflow.app.data.SettingsStore
+import no.lionflow.app.model.Trip
+import no.lionflow.app.model.VehicleStatus
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -69,6 +71,10 @@ data class Vehicle(
     val pictureUrl: String?,
     val maintenanceHref: String?,
 ) {
+    val reportsMildHybrid: Boolean
+        get() = motorization.filter(Char::isLetterOrDigit).lowercase() in
+            setOf("mhev", "mildhybrid", "mildhybridelectricvehicle", "48vmildhybrid")
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("vin", vin); put("motorization", motorization); put("brand", brand)
         put("picture", pictureUrl ?: ""); put("maintenance", maintenanceHref ?: "")
@@ -219,6 +225,19 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     fun pick(list: List<Vehicle>): Vehicle? = list.firstOrNull { it.vin == selectedVin } ?: list.firstOrNull()
     fun cachedVehicle(): Vehicle? = pick(cachedVehicles())
     suspend fun currentVehicle(): Vehicle? = cachedVehicle() ?: pick(vehicles())
+
+    fun isMildHybrid(vehicle: Vehicle): Boolean =
+        settings.mildHybridOverride(vehicle.vin) ?: vehicle.reportsMildHybrid
+
+    fun parseStatus(vehicle: Vehicle, status: JSONObject, maintenance: JSONObject? = null): VehicleStatus =
+        VehicleStatus.parse(status, maintenance, isMildHybrid(vehicle))
+
+    suspend fun readStatus(vehicle: Vehicle): VehicleStatus = parseStatus(vehicle, status(vehicle))
+
+    fun parseTrips(vehicle: Vehicle, trips: List<JSONObject>): List<Trip> {
+        val mildHybrid = isMildHybrid(vehicle)
+        return trips.map { Trip.parse(it, mildHybrid) }
+    }
 
     suspend fun status(v: Vehicle): JSONObject = authed { token ->
         val url = "$API/connectedcar/v4/user/vehicles/${v.id}/status?${clientQuery()}"

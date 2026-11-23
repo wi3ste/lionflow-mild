@@ -364,9 +364,13 @@ class TripsScreen(ctx: CarContext) : Screen(ctx) {
         val km = week.sumOf { it.distanceKm }
         val kwh = week.mapNotNull { it.kwh }.sum()
         val avg = if (km > 1 && kwh > 0) kwh / km * 100 else null
+        val mildHybrid = CarHub.status.value?.isMildHybrid == true
+        val summary = if (mildHybrid) {
+            no.lionflow.app.model.Trip.fuelAverage(week)?.let { (rate, estimated) -> fuelRate(rate, estimated) }
+        } else avg?.let { consumption(it, s) }
         list.addItem(Row.Builder()
             .setTitle(tr("Last 7 days: ${fmtDistance(km, s)} · ${week.size} trips"))
-            .addText(tr(avg?.let { consumption(it, s) } ?: "Consumption not reported"))
+            .addText(tr(summary ?: "Consumption not reported"))
             .setImage(carContext.icon(R.drawable.ic_car_route)).build())
 
         val day = java.text.SimpleDateFormat("EEE d MMM", no.lionflow.app.ui.l10n.L10n.locale)
@@ -377,13 +381,17 @@ class TripsScreen(ctx: CarContext) : Screen(ctx) {
             val whenTxt = start?.let { d -> (if (day.format(d) == today) "Today" else day.format(d)) + " " + time.format(d) } ?: "Trip"
             val bits = mutableListOf<String>()
             t.durationSec?.takeIf { it > 0 }?.let { sec -> val m = (sec / 60).toInt(); bits += if (m >= 60) "${m / 60} h ${m % 60} min" else "$m min" }
-            t.avgKwhPer100?.let { bits += consumption(it, s) }
+            if (mildHybrid) t.avgLPer100?.let { bits += fuelRate(it, t.fuelUnitsEstimated) }
+            else t.avgKwhPer100?.let { bits += consumption(it, s) }
             t.avgSpeedKmh?.takeIf { it > 0 }?.let { v -> bits += if (s.distanceUnit == "mi") "${Math.round(v * 0.621371)} mph avg" else "${Math.round(v)} km/h avg" }
             list.addItem(Row.Builder().setTitle(tr("$whenTxt · ${fmtDistance(t.distanceKm, s)}"))
                 .addText(tr(bits.joinToString(" · ").ifBlank { "No details" })).build())
         }
         return b.setSingleList(list.build()).build()
     }
+
+    private fun fuelRate(rate: Double, estimated: Boolean) =
+        String.format(java.util.Locale.US, "%.1f l/100 km", rate) + if (estimated) " (est.)" else ""
 
     private fun consumption(kwhPer100Km: Double, s: no.lionflow.app.data.AppSettings) =
         if (s.distanceUnit == "mi") String.format(java.util.Locale.US, "%.1f mi/kWh", 100 / kwhPer100Km / 1.609344)

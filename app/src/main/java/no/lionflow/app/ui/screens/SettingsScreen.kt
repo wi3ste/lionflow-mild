@@ -25,7 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +61,9 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val c = LocalLf.current
     val platform = LocalPlatform.current
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf(false) }
+    val mildHybrid = ui.status?.isMildHybrid == true
     var editName by remember { mutableStateOf(false) }
     var editNobil by remember { mutableStateOf(false) }
     var editBattery by remember { mutableStateOf(false) }
@@ -116,6 +121,14 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     }
                 }
             }
+            if (!vm.isDemo) ui.vehicle?.let { vehicle ->
+                val override = vm.settings.mildHybridOverride(vehicle.vin)
+                Divider()
+                DropdownRow("48 V mild hybrid", "Applies to the selected car",
+                    listOf(0 to "Automatic", 1 to "On", 2 to "Off"),
+                    when (override) { null -> 0; true -> 1; false -> 2 },
+                ) { mode -> vm.setMildHybridOverride(if (mode == 0) null else mode == 1) }
+            }
             Divider()
             Text("Add another car or account", style = Type.small.copy(fontWeight = FontWeight.SemiBold), color = c.accentInk,
                 modifier = Modifier.fillMaxWidth().clickable { vm.addAccount() }.padding(horizontal = 16.dp, vertical = 12.dp))
@@ -136,17 +149,23 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 set { it.copy(timeFormat = v) }
                 no.lionflow.app.ui.l10n.TimeFmt.setPreference(ctx, v)
             }
-            Divider()
-            LinkRow("Battery size", if (s.batteryKwh > 0) "${s.batteryKwh.toInt()} kWh usable · used to work out charging kW" else "Automatic (from the car) · used to work out charging kW and energy", LfIcons.Bolt, last = true) { editBattery = true }
+            if (!mildHybrid) {
+                Divider()
+                LinkRow("Battery size", if (s.batteryKwh > 0) "${s.batteryKwh.toInt()} kWh usable · used to work out charging kW" else "Automatic (from the car) · used to work out charging kW and energy", LfIcons.Bolt, last = true) { editBattery = true }
+            }
         }
 
         SectionTitle("Notifications")
         GroupCard {
-            ToggleRow("Charging complete", "When charging finishes", s.notifyChargeDone) { v -> set { it.copy(notifyChargeDone = v) } }
-            ToggleRow("Charging stopped", "If charging is interrupted", s.notifyChargeStopped) { v -> set { it.copy(notifyChargeStopped = v) } }
+            if (!mildHybrid) {
+                ToggleRow("Charging complete", "When charging finishes", s.notifyChargeDone) { v -> set { it.copy(notifyChargeDone = v) } }
+                ToggleRow("Charging stopped", "If charging is interrupted", s.notifyChargeStopped) { v -> set { it.copy(notifyChargeStopped = v) } }
+            }
             ToggleRow("Pre-heating finished", "When pre-heating has run", s.notifyPreheat) { v -> set { it.copy(notifyPreheat = v) } }
             ToggleRow("Car left unlocked", "After about 10 minutes parked and unlocked", s.notifyUnlocked) { v -> set { it.copy(notifyUnlocked = v) } }
-            ToggleRow("Low battery", "Below 20 %", s.notifyLowBattery) { v -> set { it.copy(notifyLowBattery = v) } }
+            if (!mildHybrid) {
+                ToggleRow("Low battery", "Below 20 %", s.notifyLowBattery) { v -> set { it.copy(notifyLowBattery = v) } }
+            }
             ToggleRow("Service reminders", "Before the next service is due", s.notifyService, showDivider = false) { v -> set { it.copy(notifyService = v) } }
         }
         Text("Checked in the background about every 30 minutes.", style = Type.tiny, color = c.muted, modifier = Modifier.padding(start = 4.dp))
@@ -165,9 +184,17 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
 
         SectionTitle("Driving data")
         GroupCard {
-            LinkRow("Export driving data", "Trips as a CSV file", LfIcons.Download) {
-                if (ui.trips.isEmpty()) vm.loadTrips()
-                platform.share(vm.exportTripsCsv(), "text/csv")
+            LinkRow("Export driving data", if (exporting) "Loading trips…" else "Trips as a CSV file", LfIcons.Download) {
+                if (!exporting) {
+                    exporting = true
+                    scope.launch {
+                        try {
+                            platform.share(vm.exportTripsCsv(), "text/csv")
+                        } finally {
+                            exporting = false
+                        }
+                    }
+                }
             }
             LinkRow("Import driving data", "From LionFlow, or the official app's CSV or .myp export", LfIcons.Upload) {
                 importer.launch(arrayOf("text/*", "text/csv", "application/csv", "*/*"))

@@ -14,6 +14,76 @@ import java.util.Locale
 object TripImport {
     data class Row(val json: JSONObject, val tag: String?)
 
+    private val fuelColumns = listOf("fuel_liters", "avg_l_per_100km", "fuel_units_estimated")
+    private val fuelRate = Regex("""\b(?:l|liters?|litres?|litri)\s*/\s*100\s*km\b""")
+    private val fuelTotal = Regex("""(?:\b(?:liters?|litres?|litri)\b|\(l\)|\[l]|_liters$)""")
+
+    fun csv(trips: List<Trip>, tagName: (Trip) -> String?): String = buildString {
+        val iso = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        appendLine((listOf("id", "start", "end", "distance_km", "duration_min", "energy_kwh",
+            "avg_kwh_per_100km", "avg_speed_kmh", "tag") + fuelColumns).joinToString(","))
+        for (trip in trips) {
+            appendLine(listOf(
+                trip.id,
+                trip.startMillis?.let { iso.format(java.util.Date(it)) }.orEmpty(),
+                trip.endMillis?.let { iso.format(java.util.Date(it)) }.orEmpty(),
+                String.format(Locale.US, "%.1f", trip.distanceKm),
+                trip.durationSec?.let { String.format(Locale.US, "%.0f", it / 60) }.orEmpty(),
+                trip.kwh?.let { String.format(Locale.US, "%.2f", it) }.orEmpty(),
+                trip.avgKwhPer100?.let { String.format(Locale.US, "%.1f", it) }.orEmpty(),
+                trip.avgSpeedKmh?.let { String.format(Locale.US, "%.0f", it) }.orEmpty(),
+                tagName(trip)?.replace(Regex("[,\r\n\"]"), " ").orEmpty(),
+                trip.liters?.toString().orEmpty(),
+                trip.avgLPer100?.toString().orEmpty(),
+                if (trip.liters != null || trip.avgLPer100 != null) trip.fuelUnitsEstimated.toString() else "",
+            ).joinToString(","))
+        }
+    }
+
+    fun restore(o: JSONObject): Trip = Trip(
+        id = o.optString("id"),
+        startMillis = o.optLong("start").takeIf { it > 0 },
+        endMillis = o.optLong("end").takeIf { it > 0 },
+        distanceKm = o.optDouble("km", 0.0),
+        durationSec = o.optDouble("min", 0.0) * 60,
+        kwh = o.optDouble("kwh", 0.0).takeIf { it > 0 },
+        avgKwhPer100 = o.optDouble("avg", 0.0).takeIf { it > 0 },
+        avgSpeedKmh = o.optDouble("speed", 0.0).takeIf { it > 0 },
+        liters = fuel(o.optDouble("liters")),
+        avgLPer100 = fuel(o.optDouble("avgL")),
+        fuelUnitsEstimated = o.optBoolean("fuelUnitsEstimated"),
+    )
+
+    private fun fuel(value: Double?): Double? = value?.takeIf { it.isFinite() && it >= 0 }
+
+    fun merge(reported: List<Trip>, imported: List<Trip>): List<Trip> {
+        val byId = imported.associateBy { it.id }
+        val uniqueReported = reported.distinctBy { it.id }
+        val knownIds = uniqueReported.mapTo(HashSet()) { it.id }
+        val matchedImports = HashSet<String>()
+        val merged = uniqueReported.map { trip ->
+            val saved = byId[trip.id] ?: imported.singleOrNull { candidate ->
+                candidate.id !in knownIds && candidate.id !in matchedImports &&
+                    sameDrive(trip, candidate) && uniqueReported.count { sameDrive(it, candidate) } == 1
+            }
+            if (saved == null) return@map trip
+            matchedImports += saved.id
+            if (trip.liters != null || trip.avgLPer100 != null) trip
+            else trip.copy(liters = saved.liters, avgLPer100 = saved.avgLPer100,
+                fuelUnitsEstimated = saved.fuelUnitsEstimated)
+        }
+        return merged + imported.filterNot { it.id in matchedImports }.distinctBy { it.id }
+    }
+
+    // CSV exports can round the times to minutes and the distance to tenths of a kilometer.
+    private fun sameDrive(first: Trip, second: Trip): Boolean {
+        val start = first.startMillis ?: return false
+        val end = first.endMillis ?: return false
+        return start / 60_000 == second.startMillis?.div(60_000) &&
+            end / 60_000 == second.endMillis?.div(60_000) &&
+            kotlin.math.abs(first.distanceKm - second.distanceKm) <= 0.051
+    }
+
     fun parse(text: String): List<Row> {
         val t = text.trimStart('﻿', ' ', '\n', '\r', '\t')
         return if (t.startsWith("[") || t.startsWith("{")) parseMyp(t) else parseCsv(t)
@@ -62,15 +132,25 @@ object TripImport {
         val sep = listOf(';', '\t', ',').maxByOrNull { c -> head.count { it == c } } ?: ','
         val cols = split(head, sep).map { norm(it) }
         // LionFlow's own export.
-        if (cols.firstOrNull() == "id" && cols.getOrNull(1) == "start") return lines.drop(1).mapNotNull { own(split(it, sep)) }
+        if (cols.firstOrNull() == "id" && cols.getOrNull(1) == "start") {
+            val fuelIndices = fuelColumns.map(cols::indexOf)
+            return lines.drop(1).mapNotNull { own(split(it, sep), fuelIndices) }
+        }
 
         fun find(vararg words: String, not: List<String> = emptyList()) = cols.indexOfFirst { c -> words.any { c.contains(it) } && not.none { c.contains(it) } }
         val iStart = find("start", "debut", "départ", "depart", "beginn", "inicio", "partenza", "begin", "dato", "date", not = listOf("km", "mileage", "kilom", "odom", "lieu", "adresse", "address", "posit", "place", "lat", "lon"))
         val iEnd = find("end", "fin", "arrivee", "arrivée", "ende", "llegada", "arrivo", "slutt", not = listOf("km", "mileage", "kilom", "odom", "lieu", "adresse", "address", "posit", "place", "lat", "lon"))
-        val iKm = find("distance", "km", "kilom", "afstand", "strecke", "lengde")
+        val iKm = find("distance", "km", "kilom", "afstand", "strecke", "lengde",
+            not = listOf("100", "kwh", "consum", "speed", "vitesse"))
         val iDur = find("duree", "durée", "duration", "dauer", "duracion", "durata", "varighet", "tid", "time")
-        val iKwh = find("kwh", "energ", "electri", not = listOf("/100", "100 km", "100km", "moy", "avg", "average"))
-        val iAvg = find("/100", "100 km", "100km", "moyen", "average", "durchschn", "media", "snitt")
+        val iKwh = cols.indexOfFirst { column ->
+            listOf("kwh", "energ", "electri").any(column::contains) &&
+                listOf("/100", "/ 100", "100 km", "100km", "moy", "avg", "average").none(column::contains) &&
+                !fuelRate.containsMatchIn(column) && !fuelTotal.containsMatchIn(column)
+        }
+        val iAvg = cols.indexOfFirst { "kwh" in it && ("100" in it || "avg" in it) }
+        val iFuelAvg = cols.indexOfFirst { fuelRate.containsMatchIn(it) }
+        val iLiters = cols.indexOfFirst { fuelTotal.containsMatchIn(it) && !fuelRate.containsMatchIn(it) }
         if (iStart < 0 || iKm < 0) return emptyList()
         val out = ArrayList<Row>()
         for (line in lines.drop(1)) {
@@ -80,12 +160,15 @@ object TripImport {
             val dur = c.getOrNull(iDur)?.let { minutes(it) }
             val end = c.getOrNull(iEnd)?.let { date(it) } ?: dur?.let { start + (it * 60_000).toLong() } ?: start
             val kwh = num(c.getOrNull(iKwh)) ?: num(c.getOrNull(iAvg))?.let { it * km / 100 } ?: 0.0
-            out += Row(store("csv-$start-${(km * 10).toLong()}", start, end, km, kwh), null)
+            val trip = store("csv-$start-${(km * 10).toLong()}", start, end, km, kwh)
+            fuel(num(c.getOrNull(iLiters)))?.let { trip.put("liters", it) }
+            fuel(num(c.getOrNull(iFuelAvg)))?.let { trip.put("avgL", it) }
+            out += Row(trip, null)
         }
         return out
     }
 
-    private fun own(c: List<String>): Row? {
+    private fun own(c: List<String>, fuelIndices: List<Int>): Row? {
         if (c.size < 4) return null
         val iso = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val start = c.getOrNull(1)?.let { try { iso.parse(it)?.time } catch (_: Exception) { null } } ?: 0L
@@ -94,6 +177,9 @@ object TripImport {
             .put("km", c.getOrNull(3)?.toDoubleOrNull() ?: 0.0).put("min", c.getOrNull(4)?.toDoubleOrNull() ?: 0.0)
             .put("kwh", c.getOrNull(5)?.toDoubleOrNull() ?: 0.0).put("avg", c.getOrNull(6)?.toDoubleOrNull() ?: 0.0)
             .put("speed", c.getOrNull(7)?.toDoubleOrNull() ?: 0.0)
+        fuel(c.getOrNull(fuelIndices[0])?.toDoubleOrNull())?.let { j.put("liters", it) }
+        fuel(c.getOrNull(fuelIndices[1])?.toDoubleOrNull())?.let { j.put("avgL", it) }
+        if (c.getOrNull(fuelIndices[2]).equals("true", ignoreCase = true)) j.put("fuelUnitsEstimated", true)
         return Row(j, c.getOrNull(8)?.trim()?.takeIf { it.isNotEmpty() })
     }
 

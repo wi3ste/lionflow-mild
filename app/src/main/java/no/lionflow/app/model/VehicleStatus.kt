@@ -45,7 +45,8 @@ data class VehicleStatus(
     val chargeType: String? = null,
     val energyType: String = "Electric", // Electric | Fuel | Hybrid
     val fuelPct: Double? = null,
-    val fuelRangeKm: Double? = null,     // Partial = car's daily charge limit on, Full = charge to 100 % // car sent no/0 range; LionFlow estimated it
+    val fuelRangeKm: Double? = null,
+    val isMildHybrid: Boolean = false,
 ) {
     val isCharging: Boolean get() = chargingStatus == "InProgress"
 
@@ -80,9 +81,9 @@ data class VehicleStatus(
             return level
         }
 
-        fun parse(j: JSONObject, maintenance: JSONObject?): VehicleStatus {
+        fun parse(j: JSONObject, maintenance: JSONObject?, mildHybrid: Boolean = false): VehicleStatus {
             val energies = j.optJSONArray("energies")?.objects().orEmpty()
-            val electric = energies.firstOrNull { it.optString("type") == "Electric" }
+            val electric = energies.firstOrNull { !mildHybrid && it.optString("type") == "Electric" }
             val fuel = energies.firstOrNull { it.optString("type") == "Fuel" }
             val charging = electric?.obj("extension", "electric", "charging")
             val health = electric?.obj("extension", "electric", "battery", "health")
@@ -111,7 +112,13 @@ data class VehicleStatus(
                 // tank as its battery: some (older DS7 / 3008 Hybrid4) leave out the battery level when it is empty.
                 batteryPct = if (electric != null) hybridLevel(electric, fuel, charging) else fuel?.num("level"),
                 rangeKm = if (electric != null) electric.num("autonomy") ?: (if (fuel != null && electric.num("level") == null) 0.0 else null) else fuel?.num("autonomy"),
-                energyType = when { electric != null && fuel != null -> "Hybrid"; electric == null && fuel != null -> "Fuel"; else -> "Electric" },
+                // Non-plug-in hybrids use the existing fuel-only display capabilities.
+                energyType = when {
+                    mildHybrid || (electric == null && fuel != null) -> "Fuel"
+                    electric != null && fuel != null -> "Hybrid"
+                    else -> "Electric"
+                },
+                isMildHybrid = mildHybrid,
                 fuelPct = fuel?.num("level"),
                 fuelRangeKm = fuel?.num("autonomy"),
                 plugged = charging?.optBoolean("plugged") ?: false,
@@ -175,37 +182,86 @@ data class Trip(
     val avgSpeedKmh: Double?,
     val liters: Double? = null,
     val avgLPer100: Double? = null,
+    val fuelUnitsEstimated: Boolean = false,
 ) {
     companion object {
+        /** Distance-weighted fuel rate for trips with a reported total or rate. */
+        fun fuelAverage(trips: List<Trip>): Pair<Double, Boolean>? {
+            var totalLiters = 0.0
+            var totalKm = 0.0
+            var estimated = false
+            for (trip in trips) {
+                val km = trip.distanceKm.takeIf { it.isFinite() && it > 0 } ?: continue
+                val liters = trip.liters ?: trip.avgLPer100?.let { it * km / 100 } ?: continue
+                totalKm += km
+                totalLiters += liters
+                estimated = estimated || trip.fuelUnitsEstimated
+            }
+            return if (totalKm > 0) totalLiters / totalKm * 100 to estimated else null
+        }
+
         /** Peugeot doesn't document fuel units; pick the scale that gives a sane l/100 km (2–30). */
         private fun litersOf(raw: Double?, km: Double): Double? {
-            if (raw == null || raw <= 0 || km < 0.5) return null
+            if (raw == null || !raw.isFinite() || raw <= 0 || !km.isFinite() || km < 0.5) return null
             return listOf(1.0, 0.01, 0.001).map { raw * it }.firstOrNull { it / km * 100 in 2.0..30.0 }
         }
         private fun per100Of(raw: Double?): Double? {
-            if (raw == null || raw <= 0) return null
+            if (raw == null || !raw.isFinite() || raw <= 0) return null
             return listOf(1.0, 0.1, 0.01, 0.001).map { raw * it }.firstOrNull { it in 2.0..30.0 }
         }
 
-        fun parse(t: JSONObject): Trip {
+        private fun fuelUnit(unit: String?): String? = unit?.lowercase(Locale.ROOT)?.filterNot(Char::isWhitespace)
+
+        private fun fuelTotal(value: Double?, unit: String?): Double? {
+            val amount = value?.takeIf { it.isFinite() && it >= 0 } ?: return null
+            return when (fuelUnit(unit)) {
+                "l", "litre", "liter", "litres", "liters" -> amount
+                "cl" -> amount / 100
+                "ml" -> amount / 1000
+                else -> null
+            }
+        }
+
+        private fun fuelRate(value: Double?, unit: String?): Double? {
+            val rate = value?.takeIf { it.isFinite() && it >= 0 } ?: return null
+            return when (fuelUnit(unit)) {
+                "l/100km" -> rate
+                "km/l" -> if (rate > 0) (100 / rate).takeIf(Double::isFinite) else null
+                else -> null
+            }
+        }
+
+        fun parse(t: JSONObject, mildHybrid: Boolean = false): Trip {
             val electric = t.optJSONArray("energyConsumptions")?.objects()?.firstOrNull { it.optString("type") == "Electric" }
             val fuel = t.optJSONArray("energyConsumptions")?.objects()?.firstOrNull { it.optString("type") == "Fuel" }
-            val km = t.num("distance") ?: 0.0
-            val liters = litersOf(fuel?.num("consumption"), km)
+            val km = t.num("distance")?.takeIf { it.isFinite() && it >= 0 } ?: 0.0
+            val total = fuel?.num("consumption")
+            val totalUnit = fuel?.str("consumptionUnit") ?: fuel?.str("unit")
+            val average = fuel?.num("avgConsumption")
+            val averageUnit = fuel?.str("avgConsumptionUnit")
+            val reportedLiters = fuelTotal(total, totalUnit)
+            val reportedRate = fuelRate(average, averageUnit)
+            // Keep the existing estimate for older vehicles. For the 48 V path, omit ambiguous units.
+            val estimatedLiters = if (!mildHybrid && totalUnit == null) litersOf(total, km) else null
+            val liters = reportedLiters ?: estimatedLiters
+            val estimatedRate = if (!mildHybrid && averageUnit == null && liters == null && reportedRate == null) {
+                per100Of(average)
+            } else null
+            val rate = reportedRate ?: liters?.takeIf { km > 0 }?.let { it / km * 100 } ?: estimatedRate
             return Trip(
                 id = t.optString("id"),
                 startMillis = VehicleStatus.parseIso(t.str("startedAt") ?: t.str("createdAt")),
                 endMillis = VehicleStatus.parseIso(t.str("stoppedAt")),
-                distanceKm = t.num("distance") ?: 0.0,
+                distanceKm = km,
                 durationSec = t.num("duration"),
-                kwh = electric?.num("consumption")?.let { it / 1000.0 },
-                avgKwhPer100 = electric?.num("avgConsumption")?.let { it / 1000.0 },
+                kwh = if (mildHybrid) null else electric?.num("consumption")?.let { it / 1000.0 },
+                avgKwhPer100 = if (mildHybrid) null else electric?.num("avgConsumption")?.let { it / 1000.0 },
                 // Work it out from distance and time: the car's own "avgSpeed" is in m/s on some models and km/h on others.
                 avgSpeedKmh = t.num("duration")?.takeIf { it >= 60 && km > 0 }?.let { km / (it / 3600.0) }
                     ?: t.optJSONObject("kinetic")?.num("avgSpeed")?.let { v -> if (km > 0) v else null },
                 liters = liters,
-                // Work it out from fuel used and distance; the car's own average comes in different units (some trips were km/l).
-                avgLPer100 = liters?.let { it / km * 100 } ?: per100Of(fuel?.num("avgConsumption")),
+                avgLPer100 = rate,
+                fuelUnitsEstimated = estimatedLiters != null || estimatedRate != null,
             )
         }
     }

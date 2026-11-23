@@ -28,7 +28,8 @@ object CarTrips {
         val p = ChargePower.store() ?: return
         val odo = st.odometerKm ?: return
         if (odo <= 0) return
-        val now = Snap(st.updatedAtMillis ?: System.currentTimeMillis(), odo, st.lat, st.lon, st.batteryPct, st.residualKwh, st.capacityKwh)
+        val batteryPct = st.batteryPct.takeUnless { st.isMildHybrid }
+        val now = Snap(st.updatedAtMillis ?: System.currentTimeMillis(), odo, st.lat, st.lon, batteryPct, st.residualKwh, st.capacityKwh)
         val last = Snap.of(p.getString(ChargePower.key("ctLast"), null)?.let { JSONObject(it) })
         var open = p.getString(ChargePower.key("ctOpen"), null)?.let { JSONObject(it) }
         val e = p.edit()
@@ -77,6 +78,20 @@ object CarTrips {
         val keep = JSONArray(); val from = maxOf(0, arr.length() - MAX)
         for (i in from until arr.length()) keep.put(arr.get(i))
         p.edit().putString(ChargePower.key("ctTrips"), keep.toString()).apply()
+    }
+
+    /** Use car reports only where the server or a CSV has no trip at that time. */
+    internal fun withFallback(primary: List<Trip>, own: List<Trip>): List<Trip> {
+        val slack = 20 * 60_000L
+        return primary + own.filter { trip ->
+            val start = trip.startMillis ?: return@filter false
+            val end = trip.endMillis ?: start
+            primary.none { known ->
+                val knownStart = known.startMillis ?: return@none false
+                val knownEnd = known.endMillis ?: knownStart
+                knownStart <= end + slack && knownEnd >= start - slack
+            }
+        }
     }
 
     /** Trips logged from the car's reports, newest first. */

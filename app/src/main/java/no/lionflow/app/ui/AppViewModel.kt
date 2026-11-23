@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -31,7 +32,9 @@ import no.lionflow.app.api.Weather
 import no.lionflow.app.api.WeatherApi
 import no.lionflow.app.api.objects
 import no.lionflow.app.api.toJson
+import no.lionflow.app.model.CarTrips
 import no.lionflow.app.model.Trip
+import no.lionflow.app.model.TripImport
 import no.lionflow.app.model.VehicleStatus
 import org.json.JSONArray
 import org.json.JSONObject
@@ -321,8 +324,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun vehicleName(v: no.lionflow.app.api.Vehicle): String =
         if (v.vin == _ui.value.vehicle?.vin) settings.value.carName else settings.nameFor(v.vin) ?: (no.lionflow.app.model.Brands.current.display + " …" + v.vin.takeLast(4))
 
-    fun vehicleKind(v: no.lionflow.app.api.Vehicle): String = when (v.motorization.lowercase()) {
-        "electric" -> "Electric"; "hybrid" -> "Plug-in hybrid"; "thermal" -> "Petrol / diesel"; else -> v.motorization.ifBlank { "Car" }
+    fun setMildHybridOverride(enabled: Boolean?) {
+        val current = _ui.value
+        val vehicle = current.vehicle ?: return
+        settings.setMildHybridOverride(vehicle.vin, enabled)
+        val previous = current.status ?: return
+        val status = api.parseStatus(vehicle, previous.raw).copy(
+            kmToService = previous.kmToService,
+            daysToService = previous.daysToService,
+        )
+        _ui.update { it.copy(status = status, tab = if (Caps.tab(it.tab, status)) it.tab else Tab.Home) }
+        no.lionflow.app.widget.WidgetData.save(getApplication(), status)
+        if (current.trips.isNotEmpty()) loadTrips()
+    }
+
+    fun vehicleKind(v: no.lionflow.app.api.Vehicle): String = when {
+        api.isMildHybrid(v) -> "48 V mild hybrid"
+        else -> when (v.motorization.lowercase()) {
+            "electric" -> "Electric"; "hybrid" -> "Plug-in hybrid"; "thermal" -> "Petrol / diesel"; else -> v.motorization.ifBlank { "Car" }
+        }
     }
 
     /** Reload the car list (e.g. after adding a car in MyPeugeot). */
@@ -572,7 +592,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     })
                 }
                 val maint = try { api.maintenance(v) } catch (e: no.lionflow.app.api.ApiException) { if (missing) null else throw e }
-                val st = applyHolds(no.lionflow.app.model.ChargePower.record(VehicleStatus.parse(raw, maint)))
+                val st = applyHolds(no.lionflow.app.model.ChargePower.record(api.parseStatus(v, raw, maint)))
                 if (settings.value.smartMode.isNotEmpty() && !programsPending()) try { no.lionflow.app.work.SmartSchedule.syncFromCar(app(), st.programs) } catch (_: Exception) {}
                 val now = System.currentTimeMillis()
                 settings.lastRefresh = now
@@ -982,24 +1002,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** True when the brand's server said "no trips" on the first call: then the trips list explains it. */
     var tripsNone by androidx.compose.runtime.mutableStateOf(false)
 
-    fun loadTrips(daysAsked: Int = 30) {
+    fun loadTrips(daysAsked: Int = 30): kotlinx.coroutines.Job? {
         val days = maxOf(daysAsked, tripsDays).coerceAtMost(1100)
         tripsDays = days
         reloadRoutes()
-        if (isDemo) { _ui.update { it.copy(trips = no.lionflow.app.demo.Demo.trips(), tripsLoading = false) }; return }
-        val v = _ui.value.vehicle ?: return
-        viewModelScope.launch {
+        if (isDemo) { _ui.update { it.copy(trips = no.lionflow.app.demo.Demo.trips(), tripsLoading = false) }; return null }
+        val v = _ui.value.vehicle ?: return null
+        return viewModelScope.launch {
             _ui.update { it.copy(tripsLoading = true) }
             try {
                 val res = api.allTrips(v, System.currentTimeMillis() - days * 86_400_000L)
-                val all = res.trips.map { Trip.parse(it) }
+                val all = api.parseTrips(v, res.trips)
                 tripsNone = res.noneFound
                 if (tripsNone) remote.addLog("trips: the server says no trips were found")
                 val newest = all.maxOfOrNull { it.startMillis ?: 0L } ?: 0L
                 if (newest > 0) remote.addLog("trips: newest from Peugeot " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(newest)))
                 remote.addLog("trips: ${all.size} from the last $days days")
                 val imported = loadImportedTrips()
-                val merged = withCarTrips((all + imported).distinctBy { it.id }).sortedByDescending { it.startMillis ?: 0L }
+                val merged = withCarTrips(TripImport.merge(all, imported)).sortedByDescending { it.startMillis ?: 0L }
                 _ui.update { it.copy(trips = merged, tripsLoading = false) }
                 autoTagNow()
             } catch (e: Exception) {
@@ -1009,43 +1029,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun exportTripsCsv(): File {
+    suspend fun exportTripsCsv(): File {
+        if (_ui.value.trips.isEmpty() && !_ui.value.tripsLoading) loadTrips()?.join()
+        val trips = ui.first { !it.tripsLoading }.trips
         val dir = File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
-        val f = File(dir, "lionflow-trips.csv")
-        val iso = SimpleDateFormat("yyyy-MM-dd HH:mm", no.lionflow.app.ui.l10n.L10n.locale)
-        val sb = StringBuilder("id,start,end,distance_km,duration_min,energy_kwh,avg_kwh_per_100km,avg_speed_kmh,tag\n")
-        for (t in _ui.value.trips) {
-            sb.append(listOf(
-                t.id,
-                t.startMillis?.let { iso.format(Date(it)) } ?: "",
-                t.endMillis?.let { iso.format(Date(it)) } ?: "",
-                String.format(Locale.US, "%.1f", t.distanceKm),
-                t.durationSec?.let { String.format(Locale.US, "%.0f", it / 60) } ?: "",
-                t.kwh?.let { String.format(Locale.US, "%.2f", it) } ?: "",
-                t.avgKwhPer100?.let { String.format(Locale.US, "%.1f", it) } ?: "",
-                t.avgSpeedKmh?.let { String.format(Locale.US, "%.0f", it) } ?: "",
-                tags.tagOf(t.id)?.name?.replace(Regex("[,\\r\\n\"]"), " ").orEmpty(),
-            ).joinToString(",")).append('\n')
+        return File(dir, "lionflow-trips.csv").apply {
+            writeText(TripImport.csv(trips) { tags.tagOf(it.id)?.name })
         }
-        f.writeText(sb.toString())
-        return f
     }
 
     /** Imports trips from a CSV or .myp file (LionFlow's own, or the official app's export). */
     fun importTripsCsv(text: String) {
-        val rows = try { no.lionflow.app.model.TripImport.parse(text) } catch (e: Exception) { emptyList() }
+        val rows = try { TripImport.parse(text) } catch (e: Exception) { emptyList() }
         if (rows.isEmpty()) {
             toast(no.lionflow.app.ui.l10n.L10n.tr("Couldn't read any trips from that file. Send it to me on GitHub and I'll add support for it."))
             return
         }
         val arr = JSONArray(settings.importedTripsJson)
-        val have = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("id") }.toHashSet()
+        val have = arr.objects().associateBy { it.optString("id") }.toMutableMap()
         var count = 0
         val tagged = HashMap<String, String>()
         for (r in rows) {
             val id = r.json.optString("id")
-            if (id in have) continue
-            have += id; arr.put(r.json); count++
+            val existing = have[id]
+            if (existing != null) {
+                if (!existing.has("liters") && !existing.has("avgL") && (r.json.has("liters") || r.json.has("avgL"))) {
+                    for (key in listOf("liters", "avgL", "fuelUnitsEstimated")) {
+                        r.json.opt(key)?.let { existing.put(key, it) }
+                    }
+                    count++
+                }
+                continue
+            }
+            have[id] = r.json
+            arr.put(r.json)
+            count++
             r.tag?.let { tagged[id] = it }
         }
         settings.importedTripsJson = arr.toString()
@@ -1053,34 +1071,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             tagged[t.id]?.let { name -> tags.set(t, (tags.byName(name) ?: tags.create(name, tags.data.tags.size % no.lionflow.app.model.TripTags.COLORS)).id) }
         }
         toast("Imported $count trips")
-        _ui.update { s -> s.copy(trips = (s.trips + loadImportedTrips()).distinctBy { it.id }.sortedByDescending { it.startMillis ?: 0L }) }
+        val ownIds = CarTrips.list().mapTo(HashSet()) { it.id }
+        val imported = loadImportedTrips()
+        _ui.update { s ->
+            val primary = TripImport.merge(s.trips.filterNot { it.id in ownIds }, imported)
+            s.copy(trips = withCarTrips(primary).sortedByDescending { it.startMillis ?: 0L })
+        }
     }
 
-    /** Adds the trips LionFlow logged from the car's own reports, where Peugeot's list or an import has none at that time. */
-    private fun withCarTrips(list: List<Trip>): List<Trip> {
-        val own = no.lionflow.app.model.CarTrips.list()
-        if (own.isEmpty()) return list
-        val slack = 20 * 60_000L
-        val extra = own.filter { o ->
-            val a = o.startMillis ?: return@filter false; val b = o.endMillis ?: a
-            list.none { t -> val ta = t.startMillis ?: return@none false; val tb = t.endMillis ?: ta; ta <= b + slack && tb >= a - slack }
-        }
-        return list + extra
-    }
+    private fun withCarTrips(list: List<Trip>): List<Trip> = CarTrips.withFallback(list, CarTrips.list())
 
     private fun loadImportedTrips(): List<Trip> = try {
-        JSONArray(settings.importedTripsJson).objects().map { o ->
-            Trip(
-                id = o.optString("id"),
-                startMillis = o.optLong("start").takeIf { it > 0 },
-                endMillis = o.optLong("end").takeIf { it > 0 },
-                distanceKm = o.optDouble("km", 0.0),
-                durationSec = o.optDouble("min", 0.0) * 60,
-                kwh = o.optDouble("kwh", 0.0).takeIf { it > 0 },
-                avgKwhPer100 = o.optDouble("avg", 0.0).takeIf { it > 0 },
-                avgSpeedKmh = o.optDouble("speed", 0.0).takeIf { it > 0 },
-            )
-        }
+        JSONArray(settings.importedTripsJson).objects().map(TripImport::restore)
     } catch (_: Exception) { emptyList() }
 
     // ---------------- service history & photo ----------------

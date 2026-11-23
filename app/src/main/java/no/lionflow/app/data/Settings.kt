@@ -115,6 +115,13 @@ class SettingsStore(context: Context) {
         routeBtName = p.getString("routeBtName", "") ?: "",
     )
 
+    fun mildHybridOverride(vin: String): Boolean? =
+        p.getString("mildHybridOverride_$vin", null)?.toBooleanStrictOrNull()
+
+    fun setMildHybridOverride(vin: String, enabled: Boolean?) {
+        p.edit().putString("mildHybridOverride_$vin", enabled?.toString()).apply()
+    }
+
     fun update(block: (AppSettings) -> AppSettings) {
         val s = block(_state.value)
         p.edit()
