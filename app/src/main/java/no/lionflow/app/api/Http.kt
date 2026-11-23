@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class ApiException(val code: Int, message: String) : Exception(message)
+class ApiException(val code: Int, message: String, val retryAfter: String? = null) : Exception(message)
 
 object Http {
     val client: OkHttpClient = OkHttpClient.Builder()
@@ -25,7 +25,7 @@ object Http {
     suspend fun text(req: Request): String = withContext(Dispatchers.IO) {
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string() ?: ""
-            if (!resp.isSuccessful) throw ApiException(resp.code, describeHttpError(resp.code, body, req.url.host))
+            if (!resp.isSuccessful) throw ApiException(resp.code, describeHttpError(resp.code, body, req.url.host), resp.header("Retry-After"))
             body
         }
     }

@@ -21,6 +21,7 @@ import no.lionflow.app.api.OsmChargers
 import no.lionflow.app.api.RemoteControl
 import no.lionflow.app.api.Tracker
 import no.lionflow.app.api.TripHistory
+import no.lionflow.app.api.TripWindow
 import no.lionflow.app.api.chargerFromJson
 import no.lionflow.app.api.objects
 import no.lionflow.app.api.toJson
@@ -99,6 +100,8 @@ object CarHub {
         no.lionflow.app.model.Garage.activate(app(ctx), e)
         _status.value = null; _chargers.value = emptyList(); _fuel.value = emptyList(); _trips.value = null
         fuelAt = 0L; lastRefresh = 0L; tripsLoadedAt = 0L
+        tripsJob?.cancel()
+        tripsJob = null
         refresh(ctx, force = true); loadTrips(ctx, force = true)
     }
 
@@ -197,19 +200,23 @@ object CarHub {
     private val _trips = MutableStateFlow<List<Trip>?>(null)
     val trips: StateFlow<List<Trip>?> = _trips
     private var tripsLoadedAt = 0L
+    private var tripsJob: Job? = null
 
     /** Last 30 days of trips from Peugeot (newest first), at most every 5 minutes. */
     fun loadTrips(ctx: Context, force: Boolean = false) {
         val app = app(ctx)
-        if (!app.api.isSignedIn) return
+        if (!app.api.isSignedIn || tripsJob?.isActive == true) return
         if (!force && _trips.value != null && System.currentTimeMillis() - tripsLoadedAt < 5 * 60_000) return
         tripsLoadedAt = System.currentTimeMillis()
-        scope.launch {
+        tripsJob = scope.launch {
             try {
                 val v = app.api.currentVehicle() ?: return@launch
-                val since = TripHistory.cutoff(System.currentTimeMillis(), 30)
-                val history = TripHistory.load(since) { sinceIso, token -> app.api.trips(v, sinceIso, token) }
-                _trips.value = history.trips
+                val now = System.currentTimeMillis()
+                val tripProfile = app.api.profile
+                val history = app.api.tripHistory(v, TripWindow(TripHistory.cutoff(now, 30), now + 1), force)
+                if (app.api.profile != tripProfile || app.api.cachedVehicle()?.id != v.id) return@launch
+                _trips.value = TripHistory.inPeriod(history.trips, now, 30)
+                if (!history.complete && !history.noTrips) say("Trip history may be incomplete")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

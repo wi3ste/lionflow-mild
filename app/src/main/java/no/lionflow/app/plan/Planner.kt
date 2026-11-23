@@ -258,11 +258,13 @@ class Planner(
     /** Battery use and charging speed for this car (matched to its own trips and fast charges when there are enough). */
     private fun context(): Pair<Options, Consumption.Model> {
         val kwh = batteryKwh()
-        val m = Consumption.fit(trips().mapNotNull { t ->
+        val observations = trips().mapNotNull { t ->
             val used = t.kwh ?: t.avgKwhPer100?.let { it * t.distanceKm / 100 }
             val v = t.avgSpeedKmh
-            if (used != null && v != null) Consumption.TripSample(t.distanceKm, used, v) else null
-        }, kwh)
+            if (used != null && v != null) Consumption.TripSample(t.distanceKm, used, v) to t.estimated else null
+        }
+        val measured = observations.filterNot { it.second }.map { it.first }
+        val m = Consumption.fit(measured.ifEmpty { observations.map { it.first } }, kwh)
         model = m
         val fitSamples = no.lionflow.app.model.ChargeLog.sessions.value
             .filter { (it.mode?.contains("Quick", true) == true || (it.avgKw ?: 0.0) >= 40.0) && it.endPct - it.startPct >= 8 && it.hours * 60 >= 8 && it.kwh > 0 }

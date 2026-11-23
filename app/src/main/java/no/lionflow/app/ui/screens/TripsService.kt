@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import no.lionflow.app.api.TripHistory
+import no.lionflow.app.model.TripConsumption
 import no.lionflow.app.data.AppSettings
 import no.lionflow.app.ui.AppViewModel
 import no.lionflow.app.ui.Busy
@@ -85,8 +86,8 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
     var visibleTrips by remember(period) { mutableStateOf(50) }
     val mildHybrid = ui.status?.isMildHybrid == true
     val km = list.sumOf { it.distanceKm }
-    val kwh = list.mapNotNull { it.kwh }.sum()
-    val avg = if (km > 0 && kwh > 0) kwh / km * 100 else null
+    val electric = TripConsumption.electric(list)
+    val avg = electric?.per100
     val liters = list.mapNotNull { it.liters }.sum()
     val fuelKm = list.filter { it.liters != null }.sumOf { it.distanceKm }
     val avgL = if (fuelKm > 0 && liters > 0) liters / fuelKm * 100 else null
@@ -102,7 +103,7 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
             Row(Modifier.fillMaxWidth()) {
                 Stat(Modifier.weight(1f), fmtDistance(km, s).substringBefore(" "), if (s.distanceUnit == "mi") "mi driven" else "km driven")
                 if (showFuel || mildHybrid) Stat(Modifier.weight(1f), avgL?.let { String.format(Locale.US, "%.1f", it) } ?: "—", "l/100 km")
-                if (!mildHybrid && (!showFuel || (avg != null && no.lionflow.app.ui.Caps.battery(ui.status)))) Stat(Modifier.weight(1f), avg?.let { String.format(Locale.US, "%.1f", it) } ?: "—", "kWh/100 km")
+                if (!mildHybrid && (!showFuel || (avg != null && no.lionflow.app.ui.Caps.battery(ui.status)))) Stat(Modifier.weight(1f), avg?.let { String.format(Locale.US, "%.1f", it) } ?: "—", if (electric?.estimated == true) "est. kWh/100 km" else "kWh/100 km")
                 Stat(Modifier.weight(1f), "${list.size}", "trips")
             }
             // bars per day (week) or per week (month)
@@ -125,11 +126,17 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
                 }
             }
         }
-        if (ui.status?.energyType == "Hybrid" && list.isNotEmpty()) HybridStats(vm, list, ui.trips, s)
+        val reported = list.filterNot { it.estimated }
+        if (ui.status?.energyType == "Hybrid" && reported.isNotEmpty()) {
+            HybridStats(vm, reported, ui.trips.filterNot { it.estimated }, s)
+        }
         if (mildHybrid && list.isNotEmpty()) {
             Text("Electric distance unavailable", style = Type.small, color = c.muted)
         }
         TagStats(vm, ui, s, list)
+        if (ui.tripsPartial && !ui.tripsLoading) {
+            Text("Trip history may be incomplete", style = Type.small, color = c.muted)
+        }
         if (ui.tripsLoading) Row(verticalAlignment = Alignment.CenterVertically) { Busy(); Text("  Loading trips…", style = Type.small, color = c.muted) }
         if (list.isEmpty() && !ui.tripsLoading) {
             Text("No trips in this period.", style = Type.small, color = c.muted)
@@ -148,6 +155,7 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
                         Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(c.raisedBlue), contentAlignment = Alignment.Center) { LfIcon(if (route != null) LfIcons.Map else LfIcons.Route, c.blueInk, 20.dp) }
                         Column(Modifier.weight(1f)) {
                             Text(t.startMillis?.let { fmt.format(Date(it)) } ?: "Trip", style = Type.label, color = c.text)
+                            if (t.estimated) Text("Estimated trip", style = Type.tiny, color = c.muted)
                             Text(listOfNotNull(t.durationSec?.let { "${(it / 60).toInt()} min" }, t.avgSpeedKmh?.let { "${it.toInt()} km/h avg" }).joinToString(" · "), style = Type.small, color = c.muted)
                         }
                         TripTagSlot(vm, s, t)
@@ -264,6 +272,7 @@ private fun TripDetail(vm: AppViewModel, trip: no.lionflow.app.model.Trip?, rout
                     else -> tile(Modifier.weight(1f), "Consumption", "—")
                 }
             }
+            if (trip?.estimated == true) Text("Estimated trip", style = Type.small, color = c.muted)
             val energy = trip?.kwh?.takeIf { !mildHybrid && it > 0 }?.let { String.format(Locale.US, "%.1f kWh", it) }
             val fuel = trip?.liters?.let { String.format(Locale.US, "%.1f l", it) }
             if (energy != null || fuel != null) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -28,7 +28,12 @@ object CarTrips {
         val p = ChargePower.store() ?: return
         val odo = st.odometerKm ?: return
         if (odo <= 0) return
-        val now = Snap(st.updatedAtMillis ?: System.currentTimeMillis(), odo, st.lat, st.lon, st.batteryPct, st.residualKwh, st.capacityKwh)
+        val now = Snap(
+            st.updatedAtMillis ?: System.currentTimeMillis(), odo, st.lat, st.lon,
+            st.batteryPct.takeUnless { st.usesFuelGauge },
+            st.residualKwh.takeUnless { st.usesFuelGauge },
+            st.capacityKwh.takeUnless { st.usesFuelGauge },
+        )
         val last = Snap.of(p.getString(ChargePower.key("ctLast"), null)?.let { JSONObject(it) })
         var open = p.getString(ChargePower.key("ctOpen"), null)?.let { JSONObject(it) }
         val e = p.edit()
@@ -93,6 +98,7 @@ object CarTrips {
                 kwh = o.optDouble("kwh", 0.0).takeIf { it > 0 },
                 avgKwhPer100 = o.optDouble("avg", 0.0).takeIf { it > 0 },
                 avgSpeedKmh = o.optDouble("speed", 0.0).takeIf { it > 0 && !o.optBoolean("estimated") },
+                estimated = true,
             )
         }.sortedByDescending { it.startMillis ?: 0L }
     }

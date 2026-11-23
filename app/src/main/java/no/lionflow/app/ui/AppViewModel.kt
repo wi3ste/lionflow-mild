@@ -11,6 +11,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,12 +21,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import no.lionflow.app.LionFlowApp
 import no.lionflow.app.api.AuthExpiredException
 import no.lionflow.app.api.Charger
 import no.lionflow.app.api.CommandResult
 import no.lionflow.app.api.Tracker
+import no.lionflow.app.api.TRIP_DAY_MS
 import no.lionflow.app.api.TripHistory
+import no.lionflow.app.api.TripWindow
 import no.lionflow.app.api.NobilApi
 import no.lionflow.app.api.Vehicle
 import no.lionflow.app.api.Weather
@@ -35,6 +39,7 @@ import no.lionflow.app.api.toJson
 import no.lionflow.app.model.Trip
 import no.lionflow.app.model.TripExport
 import no.lionflow.app.model.TripImport
+import no.lionflow.app.model.TripMerge
 import no.lionflow.app.model.VehicleStatus
 import org.json.JSONArray
 import org.json.JSONObject
@@ -65,6 +70,7 @@ data class UiState(
     val trips: List<Trip> = emptyList(),
     val routes: List<no.lionflow.app.route.Route> = emptyList(),
     val tripsLoading: Boolean = false,
+    val tripsPartial: Boolean = false,
     val serviceHistory: List<ServiceEntry> = emptyList(),
     val commandInProgress: String? = null,
     val commandProgress: String? = null,
@@ -163,8 +169,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun ensureTrips(days: Int) { if (days > tripsDays && !_ui.value.tripsLoading) loadTrips(days) }
     private var tripsDays = 30
     private var tripsJob: Job? = null
+    private var apiTrips = emptyList<Trip>()
+    private var tripSyncHistory: TripHistory? = null
 
     private fun resetTripLoad() {
+        apiTrips = emptyList()
+        tripSyncHistory = null
         tripsJob?.cancel()
         tripsJob = null
         tripsDays = 30
@@ -211,7 +221,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         no.lionflow.app.model.ChargePower.setVin(v.vin)
         no.lionflow.app.widget.WidgetData.clear(getApplication())
         resetTripLoad()
-        _ui.update { it.copy(vehicle = v, status = null, trips = emptyList(), tripsLoading = false, photoPath = settings.photoFor(v.vin)) }
+        _ui.update { it.copy(vehicle = v, status = null, trips = emptyList(), tripsLoading = false, tripsPartial = false, photoPath = settings.photoFor(v.vin)) }
         loadTrips()
         refresh()
     }
@@ -421,7 +431,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         no.lionflow.app.model.ChargeLog.enterDemo(getApplication(), d.VIN, d.sessions(), d.places())
         val now = System.currentTimeMillis()
         java.io.File(getApplication<Application>().cacheDir, "demo_photo.jpg").delete()
-        _ui.update { it.copy(phase = Phase.Ready, photoPath = null, vehicle = d.vehicle, vehicles = listOf(d.vehicle), status = d.status(), trips = d.trips(), tripsLoading = false, lastRefresh = now, now = now) }
+        _ui.update { it.copy(phase = Phase.Ready, photoPath = null, vehicle = d.vehicle, vehicles = listOf(d.vehicle), status = d.status(), trips = d.trips(), tripsLoading = false, tripsPartial = false, lastRefresh = now, now = now) }
         startTicker()
         loadLocationAndWeather()
     }
@@ -574,7 +584,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 serverRetries = 0
                 no.lionflow.app.widget.WidgetData.save(getApplication<Application>(), st)
                 _ui.update { it.copy(vehicle = v, status = st, statusMissing = missing, refreshing = false, lastRefresh = now, now = now) }
-                if (_ui.value.trips.isEmpty() && !_ui.value.tripsLoading) loadTrips()
+                if (tripSyncHistory == null && !_ui.value.tripsLoading) loadTrips()
+                else if (!_ui.value.tripsLoading) _ui.update { it.copy(trips = mergedTrips().trips) }
                 if (!st.preconditioningOn && no.lionflow.app.work.ChargeLimit.due(getApplication(), st)) viewModelScope.launch {
                     no.lionflow.app.work.ChargeLimit.check(getApplication(), st)?.let { toast(it); kotlinx.coroutines.delay(4000); refresh() }
                 }
@@ -977,11 +988,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** True when the brand's server said "no trips" on the first call: then the trips list explains it. */
     var tripsNone by androidx.compose.runtime.mutableStateOf(false)
 
-    fun loadTrips(daysAsked: Int = 30) {
+    fun loadTrips(daysAsked: Int = 30, force: Boolean = false) {
         reloadRoutes()
         if (isDemo) { _ui.update { it.copy(trips = no.lionflow.app.demo.Demo.trips(), tripsLoading = false) }; return }
         val v = _ui.value.vehicle ?: return
-        val days = maxOf(daysAsked, tripsDays).coerceAtMost(1100)
+        val days = (if (force) daysAsked else maxOf(daysAsked, tripsDays)).coerceIn(1, 1100)
         if (tripsJob?.isActive == true && days == tripsDays) return
         tripsJob?.cancel()
         tripsDays = days
@@ -991,20 +1002,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         tripsJob = viewModelScope.launch {
             _ui.update { it.copy(tripsLoading = true) }
             try {
-                val since = TripHistory.cutoff(System.currentTimeMillis(), days)
-                val result = TripHistory.load(since) { sinceIso, token -> api.trips(v, sinceIso, token) }
+                val now = System.currentTimeMillis()
+                val range = TripWindow(TripHistory.cutoff(now, days), now + 1)
+                val result = api.tripHistory(v, range, force)
                 if (!isCurrent()) return@launch
-                tripsNone = result.noTrips
-                val merged = withCarTrips((result.trips + loadImportedTrips()).distinctBy { it.id }).sortedByDescending { it.startMillis ?: 0L }
-                _ui.update { it.copy(trips = merged, tripsLoading = false) }
+                tripsNone = result.noTrips && result.trips.isEmpty()
+                tripSyncHistory = result
+                val oldest = TripHistory.cutoff(now, 1100)
+                apiTrips = (result.trips + apiTrips.filter { (it.startMillis ?: 0L) >= oldest }).distinctBy { it.id }
+                val recent = TripWindow(maxOf(result.range.from, result.range.until - 30 * TRIP_DAY_MS), result.range.until)
+                val partial = result.coveredMillis(recent) != recent.duration
+                val merged = mergedTrips()
+                _ui.update { it.copy(trips = merged.trips, tripsLoading = false, tripsPartial = partial, now = System.currentTimeMillis()) }
                 autoTagNow()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 if (!isCurrent()) return@launch
-                _ui.update { it.copy(tripsLoading = false, trips = it.trips.ifEmpty { withCarTrips(loadImportedTrips()) }) }
+                _ui.update { it.copy(tripsLoading = false, tripsPartial = true, trips = mergedTrips().trips) }
                 toast("Couldn't load trips — ${no.lionflow.app.api.Http.describe(e)}")
             }
+        }
+    }
+
+    internal suspend fun exportTripSyncReport(): File? {
+        if (!no.lionflow.app.BuildConfig.DEBUG || isDemo) return null
+        if (tripSyncHistory == null && !_ui.value.tripsLoading) loadTrips()
+        ui.first { !it.tripsLoading }
+        val history = tripSyncHistory ?: return null
+        val merge = mergedTrips()
+        val text = history.aggregateReport() + "\n" + merge.aggregateReport()
+        return try {
+            withContext(Dispatchers.IO) {
+                val dir = File(getApplication<Application>().cacheDir, "exports").apply { mkdirs() }
+                File(dir, "lionflow-trip-sync.txt").apply { writeText(text) }
+            }
+        } catch (_: java.io.IOException) {
+            toast("Could not export the trip sync report")
+            null
         }
     }
 
@@ -1028,7 +1063,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val arr = JSONArray(settings.importedTripsJson)
         val have = arr.objects().associateBy { it.optString("id") }.toMutableMap()
-        val enriched = mutableMapOf<String, Trip>()
         var count = 0
         val tagged = HashMap<String, String>()
         for (r in rows) {
@@ -1039,7 +1073,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     for (key in listOf("liters", "avgL", "fuelUnitsEstimated")) {
                         r.json.opt(key)?.let { existing.put(key, it) }
                     }
-                    enriched[id] = TripImport.restore(existing)
                     count++
                 }
                 continue
@@ -1054,27 +1087,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             tagged[t.id]?.let { name -> tags.set(t, (tags.byName(name) ?: tags.create(name, tags.data.tags.size % no.lionflow.app.model.TripTags.COLORS)).id) }
         }
         toast("Imported $count trips")
-        _ui.update { s ->
-            val trips = s.trips.map { trip ->
-                val imported = enriched[trip.id]
-                if (imported == null || trip.liters != null || trip.avgLPer100 != null) trip
-                else trip.copy(liters = imported.liters, avgLPer100 = imported.avgLPer100, fuelUnitsEstimated = imported.fuelUnitsEstimated)
-            }
-            s.copy(trips = (trips + loadImportedTrips()).distinctBy { it.id }.sortedByDescending { it.startMillis ?: 0L })
-        }
+        _ui.update { it.copy(trips = mergedTrips().trips) }
     }
 
-    /** Adds the trips LionFlow logged from the car's own reports, where Peugeot's list or an import has none at that time. */
-    private fun withCarTrips(list: List<Trip>): List<Trip> {
-        val own = no.lionflow.app.model.CarTrips.list()
-        if (own.isEmpty()) return list
-        val slack = 20 * 60_000L
-        val extra = own.filter { o ->
-            val a = o.startMillis ?: return@filter false; val b = o.endMillis ?: a
-            list.none { t -> val ta = t.startMillis ?: return@none false; val tb = t.endMillis ?: ta; ta <= b + slack && tb >= a - slack }
-        }
-        return list + extra
-    }
+    private fun mergedTrips(): TripMerge =
+        if (isDemo) TripMerge.of(no.lionflow.app.demo.Demo.trips(), loadImportedTrips(), emptyList())
+        else TripMerge.of(apiTrips, loadImportedTrips(), no.lionflow.app.model.CarTrips.list())
 
     private fun loadImportedTrips(): List<Trip> = try {
         JSONArray(settings.importedTripsJson).objects().map(TripImport::restore)

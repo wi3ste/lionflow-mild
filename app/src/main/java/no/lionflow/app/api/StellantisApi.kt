@@ -15,6 +15,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 data class BrandConfig(
     val oauthUrl: String,
@@ -250,12 +253,67 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
         return null
     }
 
-    /** One page of trips since the given ISO timestamp. */
-    suspend fun trips(v: Vehicle, sinceIso: String?, pageToken: String? = null): JSONObject = authed { token ->
+    private data class CachedTrips(
+        val profile: String, val vehicleId: String, val expires: Long, val history: TripHistory,
+    )
+    private val tripsLock = Mutex()
+    private var tripsRetryAt = 0L
+    private val cachedTrips = mutableMapOf<Boolean, CachedTrips>()
+
+    internal suspend fun tripHistory(v: Vehicle, range: TripWindow, force: Boolean = false): TripHistory {
+        val requestedProfile = profile
+        return tripsLock.withLock {
+            if (profile != requestedProfile) throw AuthExpiredException()
+            val now = System.currentTimeMillis()
+            val shortRange = range.duration <= 3 * TRIP_DAY_MS
+            val previous = cachedTrips.values.filter { it.profile == requestedProfile && it.vehicleId == v.id }
+            val reusable = previous.firstOrNull {
+                it.history.range.from <= range.from && now < it.expires
+            }
+            if (!force && reusable != null) return@withLock reusable.history
+            if (now < tripsRetryAt) {
+                val retained = previous.flatMap { it.history.trips }
+                    .filter { it.startMillis?.let(range::contains) == true }.distinctBy { it.id }
+                    .sortedByDescending { it.startMillis }
+                return@withLock TripHistory(
+                    retained, range, listOf(TripWindowOutcome(range, 0, 0, 0, TripWindowStop.RATE_LIMITED)),
+                    requests = 0, duplicateRows = 0, outsideRange = 0, undated = 0, retainedFromCache = retained.size,
+                )
+            }
+
+            val result = TripHistory.load(range) { window, pageToken ->
+                if (profile != requestedProfile) throw AuthExpiredException()
+                tripPage(v, window, pageToken)
+            }
+            val finishedAt = System.currentTimeMillis()
+            if (result.attempts.any { it.stop == TripWindowStop.RATE_LIMITED } && tripsRetryAt <= now) {
+                tripsRetryAt = tripRetryDeadline(result.retryAfter, finishedAt)
+            }
+            val previousRows = previous.flatMap { it.history.trips }
+            val retained = previousRows.filter { it.startMillis?.let(range::contains) == true }
+            val combined = (result.trips + retained).distinctBy { it.id }.sortedByDescending { it.startMillis }
+            val history = result.copy(trips = combined, retainedFromCache = combined.size - result.trips.size)
+            cachedTrips[shortRange] = CachedTrips(requestedProfile, v.id, finishedAt + 5 * 60_000, history)
+            history
+        }
+    }
+
+    private suspend fun tripPage(v: Vehicle, window: TripWindow, pageToken: String?): JSONObject = authed { token ->
         val url = "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}"
-            .toHttpUrl().withTripFilters(sinceIso, pageToken)
+            .toHttpUrl().withTripFilters(window.fromIso, pageToken, window.throughIso)
         Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
             ?: throw ApiException(0, "Invalid trips response")
+    }
+
+    private fun tripRetryDeadline(header: String?, now: Long): Long {
+        val value = header?.trim()
+        val parsed = runCatching {
+            val seconds = value?.toLongOrNull()
+            if (seconds != null && seconds >= 0) Instant.ofEpochMilli(now).plusSeconds(seconds).toEpochMilli()
+            else if (value != null) ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+            else null
+        }.getOrNull()
+        return maxOf(now + 1_000, parsed ?: now + 60_000)
     }
 
     // ---------------- remote control setup ----------------
@@ -293,10 +351,9 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     }
 }
 
-internal fun HttpUrl.withTripFilters(sinceIso: String?, pageToken: String?): HttpUrl = newBuilder()
-    .addQueryParameter("distance", "0.1-")
+internal fun HttpUrl.withTripFilters(sinceIso: String?, pageToken: String?, throughIso: String? = null): HttpUrl = newBuilder()
     .addQueryParameter("pageSize", "60")
     .apply {
-        if (sinceIso != null) addQueryParameter("timestamps", "$sinceIso/")
+        if (sinceIso != null) addQueryParameter("timestamps", "$sinceIso/${throughIso.orEmpty()}")
         if (pageToken != null) addQueryParameter("pageToken", pageToken)
     }.build()

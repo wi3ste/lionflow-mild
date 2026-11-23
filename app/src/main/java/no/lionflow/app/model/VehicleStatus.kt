@@ -189,6 +189,7 @@ data class Trip(
     val liters: Double? = null,
     val avgLPer100: Double? = null,
     val fuelUnitsEstimated: Boolean = false,
+    val estimated: Boolean = false,
 ) {
     companion object {
         /** Peugeot doesn't document fuel units; pick the scale that gives a sane l/100 km (2–30). */

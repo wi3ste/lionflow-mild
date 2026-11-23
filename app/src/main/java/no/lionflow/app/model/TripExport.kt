@@ -7,7 +7,7 @@ import java.util.Locale
 object TripExport {
     fun csv(trips: List<Trip>, tagName: (Trip) -> String?): String = buildString {
         val iso = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
-        appendLine("id,start,end,distance_km,duration_min,energy_kwh,avg_kwh_per_100km,avg_speed_kmh,tag,fuel_liters,avg_l_per_100km,fuel_units_estimated")
+        appendLine("id,start,end,distance_km,duration_min,energy_kwh,avg_kwh_per_100km,avg_speed_kmh,tag,fuel_liters,avg_l_per_100km,fuel_units_estimated,trip_estimated")
         for (t in trips) {
             appendLine(listOf(
                 t.id,
@@ -22,6 +22,7 @@ object TripExport {
                 t.liters?.toString().orEmpty(),
                 t.avgLPer100?.toString().orEmpty(),
                 if (t.liters != null || t.avgLPer100 != null) t.fuelUnitsEstimated.toString() else "",
+                t.estimated.toString(),
             ).joinToString(","))
         }
     }

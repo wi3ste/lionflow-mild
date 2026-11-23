@@ -100,10 +100,10 @@ object ChargePower {
     }
 
     fun record(raw: VehicleStatus): VehicleStatus {
-        if (raw.isMildHybrid) return applyPendingPrograms(raw)
-        val st = applyPendingPrograms(fixRange(fixLevel(raw)))
-        try { ChargeLog.observe(st) } catch (_: Exception) { }
+        val st = applyPendingPrograms(if (raw.isMildHybrid) raw else fixRange(fixLevel(raw)))
         try { CarTrips.observe(st) } catch (_: Exception) { }
+        if (raw.isMildHybrid) return st
+        try { ChargeLog.observe(st) } catch (_: Exception) { }
         val p = prefs ?: return st
         remember(p, st)
         if (!st.isCharging) { p.edit().remove(k("s")).apply(); return st }

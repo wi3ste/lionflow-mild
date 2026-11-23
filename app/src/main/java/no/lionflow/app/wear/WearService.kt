@@ -12,7 +12,7 @@ import no.lionflow.app.api.Http
 import no.lionflow.app.api.Tracker
 import no.lionflow.app.model.ChargeLog
 import no.lionflow.app.model.ChargePower
-import no.lionflow.app.api.TripHistory
+import no.lionflow.app.api.TripWindow
 import no.lionflow.app.model.VehicleStatus
 import no.lionflow.app.ui.fmtDistance
 import no.lionflow.app.ui.l10n.tr
@@ -92,14 +92,21 @@ class WearService : WearableListenerService() {
     }
 
     /** Kilometres driven today and yesterday (local time). */
-    private suspend fun distances(v: no.lionflow.app.api.Vehicle): Pair<Double, Double> {
+    private suspend fun distances(v: no.lionflow.app.api.Vehicle): Pair<Double?, Double?> {
         val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
         val todayStart = cal.timeInMillis
         cal.add(Calendar.DAY_OF_MONTH, -1)
         val yStart = cal.timeInMillis
-        val trips = TripHistory.load(yStart) { sinceIso, token -> app.api.trips(v, sinceIso, token) }.trips
-        val today = trips.filter { (it.startMillis ?: 0L) >= todayStart }.sumOf { it.distanceKm }
-        val yesterday = trips.filter { (it.startMillis ?: 0L) in yStart until todayStart }.sumOf { it.distanceKm }
+        val until = System.currentTimeMillis() + 1
+        val history = app.api.tripHistory(v, TripWindow(yStart, until))
+        val latest = minOf(until, history.range.until)
+        fun total(range: TripWindow): Double? {
+            val trips = history.trips.filter { it.startMillis?.let(range::contains) == true }
+            if (trips.isEmpty() && history.coveredMillis(range) != range.duration) return null
+            return trips.sumOf { it.distanceKm }
+        }
+        val today = if (latest > todayStart) total(TripWindow(todayStart, latest)) else null
+        val yesterday = total(TripWindow(yStart, todayStart))
         return today to yesterday
     }
 

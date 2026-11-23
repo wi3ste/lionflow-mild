@@ -66,8 +66,9 @@ object TripImport {
         if (cols.firstOrNull() == "id" && cols.getOrNull(1) == "start") {
             val liters = cols.indexOf("fuel_liters")
             val rate = cols.indexOf("avg_l_per_100km")
-            val estimated = cols.indexOf("fuel_units_estimated")
-            return lines.drop(1).mapNotNull { line -> own(split(line, sep), liters, rate, estimated) }
+            val fuelEstimated = cols.indexOf("fuel_units_estimated")
+            val tripEstimated = cols.indexOf("trip_estimated")
+            return lines.drop(1).mapNotNull { line -> own(split(line, sep), liters, rate, fuelEstimated, tripEstimated) }
         }
 
         fun find(vararg words: String, not: List<String> = emptyList()) = cols.indexOfFirst { c -> words.any { c.contains(it) } && not.none { c.contains(it) } }
@@ -97,7 +98,7 @@ object TripImport {
         return out
     }
 
-    private fun own(c: List<String>, liters: Int, rate: Int, estimated: Int): Row? {
+    private fun own(c: List<String>, liters: Int, rate: Int, fuelEstimated: Int, tripEstimated: Int): Row? {
         if (c.size < 4) return null
         val iso = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val start = c.getOrNull(1)?.let { try { iso.parse(it)?.time } catch (_: Exception) { null } } ?: 0L
@@ -108,9 +109,12 @@ object TripImport {
             .put("speed", c.getOrNull(7)?.toDoubleOrNull() ?: 0.0)
         c.getOrNull(liters)?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }?.let { j.put("liters", it) }
         c.getOrNull(rate)?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }?.let { j.put("avgL", it) }
-        if (c.getOrNull(estimated).equals("true", ignoreCase = true)) j.put("fuelUnitsEstimated", true)
+        if (c.getOrNull(fuelEstimated).equals("true", ignoreCase = true)) j.put("fuelUnitsEstimated", true)
+        c.getOrNull(tripEstimated)?.toBooleanStrictOrNull()?.let { j.put("tripEstimated", it) }
         return Row(j, c.getOrNull(8)?.trim()?.takeIf { it.isNotEmpty() })
     }
+
+    private val legacyCarTripId = Regex("car-\\d+")
 
     fun restore(o: JSONObject): Trip = Trip(
         id = o.optString("id"),
@@ -124,6 +128,7 @@ object TripImport {
         liters = o.num("liters")?.takeIf { it.isFinite() && it >= 0 },
         avgLPer100 = o.num("avgL")?.takeIf { it.isFinite() && it >= 0 },
         fuelUnitsEstimated = o.optBoolean("fuelUnitsEstimated"),
+        estimated = o.optBoolean("tripEstimated", legacyCarTripId.matches(o.optString("id"))),
     )
 
     private fun store(id: String, start: Long, end: Long, km: Double, kwh: Double): JSONObject {

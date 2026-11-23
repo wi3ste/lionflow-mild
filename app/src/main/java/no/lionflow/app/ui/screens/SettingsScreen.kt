@@ -206,6 +206,20 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             }
         }
 
+        if (BuildConfig.DEBUG && !vm.isDemo) {
+            SectionTitle("Trip sync diagnostics")
+            GroupCard {
+                LinkRow("Refresh trip history", "Load recent trips from Stellantis", LfIcons.Route) {
+                    vm.loadTrips(force = true)
+                }
+                LinkRow("Export trip sync report", "Window coverage and deduplication counts", LfIcons.Download, last = true) {
+                    scope.launch {
+                        vm.exportTripSyncReport()?.let { platform.share(it, "text/plain", "Export trip sync report") }
+                    }
+                }
+            }
+        }
+
         RouteTrackingSettings(vm, s)
 
         SectionTitle("Chargers on the map")
