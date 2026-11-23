@@ -21,7 +21,7 @@ object HybridSplit {
     private const val FALLBACK_KWH_PER_KM = 0.2
 
     fun of(trips: List<Trip>): Result {
-        fun usedEngine(t: Trip) = (t.liters ?: 0.0) >= 0.05
+        fun usedEngine(t: Trip) = (t.liters ?: t.fuelLitersFromRate() ?: 0.0) >= 0.05
         val pureEv = trips.filter { !usedEngine(it) && (it.kwh ?: 0.0) > 0 && it.distanceKm >= 1 }
         val evKm = pureEv.sumOf { it.distanceKm }
         val rate = if (evKm > 3) pureEv.sumOf { it.kwh ?: 0.0 } / evKm else FALLBACK_KWH_PER_KM

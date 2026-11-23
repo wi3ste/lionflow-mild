@@ -96,8 +96,9 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
     val fuelSummary = no.lionflow.app.model.Trip.fuelAverage(list)
     val avgL = fuelSummary?.first
     val estimatedFuel = fuelSummary?.second == true
+    val unavailableFuel = avgL == null && list.any { it.fuelDataUnverified }
     // Show l/100 km for petrol cars, or when only fuel was used (hybrids show both if both exist).
-    val showFuel = avgL != null && (avg == null || no.lionflow.app.ui.Caps.fuel(ui.status))
+    val showFuel = mildHybrid || unavailableFuel || (avgL != null && (avg == null || no.lionflow.app.ui.Caps.fuel(ui.status)))
 
     val locale = no.lionflow.app.ui.l10n.L10n.locale
     val tripTimePattern = no.lionflow.app.ui.l10n.TimeFmt.pattern("EEE d MMM · HH:mm")
@@ -120,11 +121,14 @@ fun TripsScreen(vm: AppViewModel, ui: UiState, s: AppSettings, wide: Boolean) {
                     LfCard {
                         Row(Modifier.fillMaxWidth()) {
                             Stat(Modifier.weight(1f), fmtDistance(km, s).substringBefore(" "), if (s.distanceUnit == "mi") "mi driven" else "km driven")
-                            if (showFuel || mildHybrid) Stat(Modifier.weight(1f),
+                            if (showFuel) Stat(Modifier.weight(1f),
                                 avgL?.let { String.format(Locale.US, "%.1f", it) } ?: "—",
                                 if (estimatedFuel) "l/100 km (est.)" else "l/100 km")
                             if (!mildHybrid && (!showFuel || (avg != null && no.lionflow.app.ui.Caps.battery(ui.status)))) Stat(Modifier.weight(1f), avg?.let { String.format(Locale.US, "%.1f", it) } ?: "—", "kWh/100 km")
                             Stat(Modifier.weight(1f), "${list.size}", "trips")
+                        }
+                        if (unavailableFuel) {
+                            Text("Fuel average unavailable because the readings could not be verified.", style = Type.tiny, color = c.muted)
                         }
                         // bars per day (week) or per week (month)
                         val sums = calendarPeriod.distanceByBucket(list, if (period == "week") 1 else 7)
@@ -290,6 +294,9 @@ private fun TripDetail(vm: AppViewModel, trip: no.lionflow.app.model.Trip?, rout
                 if (energy != null) tile(Modifier.weight(1f), "Energy used", energy)
                 if (fuel != null) tile(Modifier.weight(1f), "Fuel used", fuel)
                 if (energy == null || fuel == null) Spacer(Modifier.weight(1f))
+            }
+            if (trip?.fuelDataUnverified == true) {
+                Text("Some fuel readings could not be verified.", style = Type.tiny, color = c.muted)
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {

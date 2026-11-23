@@ -1085,7 +1085,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val existing = have[id]
             if (existing != null) {
                 if (!existing.has("liters") && !existing.has("avgL") && (r.json.has("liters") || r.json.has("avgL"))) {
-                    for (key in listOf("liters", "avgL", "fuelUnitsEstimated")) {
+                    for (key in TripImport.fuelStorageKeys) {
                         r.json.opt(key)?.let { existing.put(key, it) }
                     }
                     count++

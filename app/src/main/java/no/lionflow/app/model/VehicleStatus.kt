@@ -180,21 +180,36 @@ data class Trip(
     val liters: Double? = null,
     val avgLPer100: Double? = null,
     val fuelUnitsEstimated: Boolean = false,
+    val fuelDataUnverified: Boolean = false,
 ) {
+    internal fun fuelLitersFromRate(): Double? =
+        avgLPer100?.takeIf { it.isFinite() && it >= 0 }?.let { rate ->
+            (rate * (distanceKm / 100)).takeIf { it.isFinite() && it >= 0 }
+        }
+
     companion object {
-        /** Distance-weighted fuel rate for trips with a reported total or rate. */
+        /** Use reported rates first and keep estimates out of averages backed by usable readings. */
         fun fuelAverage(trips: List<Trip>): Pair<Double, Boolean>? {
-            var totalLiters = 0.0
-            var totalKm = 0.0
-            var estimated = false
+            var measuredLiters = 0.0
+            var measuredKm = 0.0
+            var estimatedLiters = 0.0
+            var estimatedKm = 0.0
             for (trip in trips) {
                 val km = trip.distanceKm.takeIf { it.isFinite() && it > 0 } ?: continue
-                val liters = trip.liters ?: trip.avgLPer100?.let { it * km / 100 } ?: continue
-                totalKm += km
-                totalLiters += liters
-                estimated = estimated || trip.fuelUnitsEstimated
+                val liters = trip.fuelLitersFromRate()
+                    ?: trip.liters?.takeIf { it.isFinite() && it >= 0 } ?: continue
+                if (trip.fuelUnitsEstimated) {
+                    estimatedKm += km
+                    estimatedLiters += liters
+                } else {
+                    measuredKm += km
+                    measuredLiters += liters
+                }
             }
-            return if (totalKm > 0) totalLiters / totalKm * 100 to estimated else null
+            val estimateOnly = measuredKm == 0.0
+            val km = if (estimateOnly) estimatedKm else measuredKm
+            val liters = if (estimateOnly) estimatedLiters else measuredLiters
+            return if (km > 0 && km.isFinite()) (liters / km * 100).takeIf(Double::isFinite)?.let { it to estimateOnly } else null
         }
 
         private fun unit(unit: String?): String? =
@@ -218,17 +233,21 @@ data class Trip(
             val fuel = energy.firstOrNull { it.optString("type") == "Fuel" }
             val km = t.nonNegative("distance") ?: 0.0
 
-            // PSA Connected Car B2C 4.17.2 EnergyConsumption defines units by type and field.
-            val liters = fuel?.nonNegative("consumption")?.let { value ->
-                when (unit(fuel.str("consumptionUnit")) ?: unit(fuel.str("unit"))) {
+            // PSA Connected Car B2C 4.17.2 defines implicit units by type and field.
+            val fuelVolumeUnit = unit(fuel?.str("consumptionUnit")) ?: unit(fuel?.str("unit"))
+            val fuelRateUnit = unit(fuel?.str("avgConsumptionUnit"))
+            val rawFuelVolume = fuel?.nonNegative("consumption")
+            val rawFuelRate = fuel?.nonNegative("avgConsumption")
+            val liters = rawFuelVolume?.let { value ->
+                when (fuelVolumeUnit) {
                     null, "l", "litre", "liter", "litres", "liters" -> value
                     "cl" -> value / 100
                     "ml" -> value / 1000
                     else -> null
                 }
             }
-            val fuelRate = fuel?.nonNegative("avgConsumption")?.let { value ->
-                when (unit(fuel.str("avgConsumptionUnit"))) {
+            val fuelRate = rawFuelRate?.let { value ->
+                when (fuelRateUnit) {
                     null, "cl/100km" -> value / 100
                     "l/100km" -> value
                     "ml/100km" -> value / 1000
@@ -236,6 +255,8 @@ data class Trip(
                     else -> null
                 }
             }
+            val fuelConsumption = FuelConsumption.resolve(km, liters, fuelRate,
+                explicitVolume = fuelVolumeUnit != null, explicitRate = fuelRateUnit != null)
             val kwh = electric?.nonNegative("consumption")?.let { value ->
                 when (unit(electric.str("consumptionUnit")) ?: unit(electric.str("unit"))) {
                     null, "kwh" -> value
@@ -261,8 +282,10 @@ data class Trip(
                 // Work it out from distance and time: the car's own "avgSpeed" is in m/s on some models and km/h on others.
                 avgSpeedKmh = t.num("duration")?.takeIf { it >= 60 && km > 0 }?.let { km / (it / 3600.0) }
                     ?: t.optJSONObject("kinetic")?.num("avgSpeed")?.let { v -> if (km > 0) v else null },
-                liters = liters,
-                avgLPer100 = fuelRate ?: liters?.takeIf { km > 0 }?.let { (it / km * 100).takeIf(Double::isFinite) },
+                liters = fuelConsumption.liters,
+                avgLPer100 = fuelConsumption.average,
+                fuelDataUnverified = fuelConsumption.unverified ||
+                    (rawFuelVolume != null && liters == null) || (rawFuelRate != null && fuelRate == null),
             )
         }
     }

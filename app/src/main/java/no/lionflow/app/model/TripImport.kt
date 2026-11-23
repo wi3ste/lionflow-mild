@@ -14,7 +14,8 @@ import java.util.Locale
 object TripImport {
     data class Row(val json: JSONObject, val tag: String?)
 
-    private val fuelColumns = listOf("fuel_liters", "avg_l_per_100km", "fuel_units_estimated")
+    private val fuelColumns = listOf("fuel_liters", "avg_l_per_100km", "fuel_units_estimated", "fuel_volume_verified")
+    internal val fuelStorageKeys = listOf("liters", "avgL", "fuelUnitsEstimated", "fuelVolumeVerified")
     private val fuelRate = Regex("""\b(?:l|liters?|litres?|litri)\s*/\s*100\s*km\b""")
     private val fuelTotal = Regex("""(?:\b(?:liters?|litres?|litri)\b|\(l\)|\[l]|_liters$)""")
 
@@ -36,23 +37,35 @@ object TripImport {
                 trip.liters?.toString().orEmpty(),
                 trip.avgLPer100?.toString().orEmpty(),
                 if (trip.liters != null || trip.avgLPer100 != null) trip.fuelUnitsEstimated.toString() else "",
+                if (trip.liters != null && !trip.fuelUnitsEstimated) "true" else "",
             ).joinToString(","))
         }
     }
 
-    fun restore(o: JSONObject): Trip = Trip(
-        id = o.optString("id"),
-        startMillis = o.optLong("start").takeIf { it > 0 },
-        endMillis = o.optLong("end").takeIf { it > 0 },
-        distanceKm = o.optDouble("km", 0.0),
-        durationSec = o.optDouble("min", 0.0) * 60,
-        kwh = o.electric("kwh"),
-        avgKwhPer100 = o.electric("avg"),
-        avgSpeedKmh = o.optDouble("speed", 0.0).takeIf { it > 0 },
-        liters = nonNegative(o.optDouble("liters")),
-        avgLPer100 = nonNegative(o.optDouble("avgL")),
-        fuelUnitsEstimated = o.optBoolean("fuelUnitsEstimated"),
-    )
+    fun restore(o: JSONObject): Trip {
+        val id = o.optString("id")
+        val km = o.optDouble("km", 0.0)
+        // Older third-party imports only set fuel values from columns with explicit units.
+        val volumeVerified = o.optBoolean("fuelVolumeVerified") || id.startsWith("csv-")
+        val fuel = FuelConsumption.resolve(km, nonNegative(o.optDouble("liters")), nonNegative(o.optDouble("avgL")),
+            explicitVolume = volumeVerified, explicitRate = volumeVerified, distanceRoundingKm = 0.05)
+        // Older LionFlow exports could derive their rate from the same volume they exported.
+        val estimated = o.optBoolean("fuelUnitsEstimated") || (!volumeVerified && (fuel.liters ?: 0.0) > 0)
+        return Trip(
+            id = id,
+            startMillis = o.optLong("start").takeIf { it > 0 },
+            endMillis = o.optLong("end").takeIf { it > 0 },
+            distanceKm = km,
+            durationSec = o.optDouble("min", 0.0) * 60,
+            kwh = o.electric("kwh"),
+            avgKwhPer100 = o.electric("avg"),
+            avgSpeedKmh = o.optDouble("speed", 0.0).takeIf { it > 0 },
+            liters = fuel.liters,
+            avgLPer100 = fuel.average,
+            fuelUnitsEstimated = estimated,
+            fuelDataUnverified = fuel.unverified,
+        )
+    }
 
     private fun nonNegative(value: Double?): Double? = value?.takeIf { it.isFinite() && it >= 0 }
 
@@ -80,7 +93,8 @@ object TripImport {
             matchedImports += saved.id
             if (trip.liters != null || trip.avgLPer100 != null) trip
             else trip.copy(liters = saved.liters, avgLPer100 = saved.avgLPer100,
-                fuelUnitsEstimated = saved.fuelUnitsEstimated)
+                fuelUnitsEstimated = saved.fuelUnitsEstimated,
+                fuelDataUnverified = trip.fuelDataUnverified || saved.fuelDataUnverified)
         }
         return merged + imported.filterNot { it.id in matchedImports }.distinctBy { it.id }
     }
@@ -192,6 +206,7 @@ object TripImport {
         nonNegative(c.getOrNull(fuelIndices[0])?.toDoubleOrNull())?.let { j.put("liters", it) }
         nonNegative(c.getOrNull(fuelIndices[1])?.toDoubleOrNull())?.let { j.put("avgL", it) }
         if (c.getOrNull(fuelIndices[2]).equals("true", ignoreCase = true)) j.put("fuelUnitsEstimated", true)
+        if (c.getOrNull(fuelIndices[3]).equals("true", ignoreCase = true)) j.put("fuelVolumeVerified", true)
         return Row(j, c.getOrNull(8)?.trim()?.takeIf { it.isNotEmpty() })
     }
 
