@@ -10,20 +10,16 @@ import no.lionflow.app.LionFlowApp
 import no.lionflow.app.api.CommandResult
 import no.lionflow.app.api.Http
 import no.lionflow.app.api.Tracker
-import no.lionflow.app.api.objects
 import no.lionflow.app.model.ChargeLog
 import no.lionflow.app.model.ChargePower
-import no.lionflow.app.model.Trip
+import no.lionflow.app.api.TripHistory
 import no.lionflow.app.model.VehicleStatus
 import no.lionflow.app.ui.fmtDistance
 import no.lionflow.app.ui.l10n.tr
 import no.lionflow.app.ui.minutesAgo
 import org.json.JSONObject
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
 /**
  * Answers LionFlow on the watch. The watch has no Peugeot sign-in of its own: it asks the phone,
@@ -58,16 +54,16 @@ class WearService : WearableListenerService() {
         if (!app.api.isSignedIn) return JSONObject().put("error", tr("Open LionFlow to sign in"))
         return try {
             val v = app.api.currentVehicle() ?: return JSONObject().put("error", tr("No car on this account"))
-            val st = ChargePower.record(VehicleStatus.parse(app.api.status(v), null))
+            val st = ChargePower.record(app.api.parseStatus(v, app.api.status(v)))
             no.lionflow.app.widget.WidgetData.save(applicationContext, st)
             val s = app.settings.value
             val (today, yesterday) = try { distances(v) } catch (_: Exception) { null to null }
             JSONObject()
                 .put("name", s.carName)
                 .put("cars", no.lionflow.app.model.Garage.entries(app).size)
-                .put("battery", st.batteryPct?.let { "${it.toInt()} %" } ?: "—")
-                .put("range", "≈ " + fmtDistance(st.rangeKm, s) + if (st.rangeEstimated) " " + tr("(est.)").trim() else "")
-                .put("fuel", st.energyType == "Fuel")
+                .put("battery", st.displayLevelPct?.let { "${it.toInt()} %" } ?: "—")
+                .put("range", "≈ " + fmtDistance(st.displayRangeKm, s) + if (st.rangeEstimated) " " + tr("(est.)").trim() else "")
+                .put("fuel", st.usesFuelGauge)
                 .put("locked", st.locked ?: JSONObject.NULL)
                 .put("status", tr(when {
                     st.isCharging -> "Charging" + (ChargePower.label(st)?.let { " at $it" } ?: "")
@@ -99,20 +95,11 @@ class WearService : WearableListenerService() {
     private suspend fun distances(v: no.lionflow.app.api.Vehicle): Pair<Double, Double> {
         val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
         val todayStart = cal.timeInMillis
-        val yStart = todayStart - 86_400_000L
-        val since = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(yStart))
-        val trips = mutableListOf<Trip>()
-        var page: String? = null
-        var guard = 0
-        do {
-            val j = app.api.trips(v, since, page)
-            j.optJSONObject("_embedded")?.optJSONArray("trips")?.objects()?.forEach { trips += Trip.parse(it) }
-            page = j.optJSONObject("_links")?.optJSONObject("next")?.optString("href")?.substringAfter("pageToken=", "")?.substringBefore("&")?.ifEmpty { null }
-            guard++
-        } while (page != null && guard < 50)
-        val uniq = trips.distinctBy { it.id }
-        val today = uniq.filter { (it.startMillis ?: 0L) >= todayStart }.sumOf { it.distanceKm }
-        val yesterday = uniq.filter { (it.startMillis ?: 0L) in yStart until todayStart }.sumOf { it.distanceKm }
+        cal.add(Calendar.DAY_OF_MONTH, -1)
+        val yStart = cal.timeInMillis
+        val trips = TripHistory.load(yStart) { sinceIso, token -> app.api.trips(v, sinceIso, token) }.trips
+        val today = trips.filter { (it.startMillis ?: 0L) >= todayStart }.sumOf { it.distanceKm }
+        val yesterday = trips.filter { (it.startMillis ?: 0L) in yStart until todayStart }.sumOf { it.distanceKm }
         return today to yesterday
     }
 
@@ -133,7 +120,7 @@ class WearService : WearableListenerService() {
                     "lock" -> app.remote.lock(true, t)
                     "lights" -> app.remote.lights(t)
                     else -> {
-                        val st = try { app.api.currentVehicle()?.let { VehicleStatus.parse(app.api.status(it), null) } } catch (_: Exception) { null }
+                        val st = try { app.api.currentVehicle()?.let { app.api.parseStatus(it, app.api.status(it)) } } catch (_: Exception) { null }
                         app.remote.preconditioning(true, st?.programsJson() ?: JSONObject(), t)
                     }
                 }

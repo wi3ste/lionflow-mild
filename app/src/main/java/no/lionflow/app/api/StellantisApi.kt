@@ -1,6 +1,7 @@
 package no.lionflow.app.api
 
 import android.content.Context
+import no.lionflow.app.model.VehicleStatus
 import android.util.Base64
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -8,6 +9,8 @@ import no.lionflow.app.data.SecureStore
 import no.lionflow.app.data.SettingsStore
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,6 +70,9 @@ data class Vehicle(
     val pictureUrl: String?,
     val maintenanceHref: String?,
 ) {
+    val reportsMildHybrid: Boolean
+        get() = motorization.filter(Char::isLetterOrDigit).lowercase() in setOf("mhev", "mildhybrid", "mildhybridelectricvehicle")
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("vin", vin); put("motorization", motorization); put("brand", brand)
         put("picture", pictureUrl ?: ""); put("maintenance", maintenanceHref ?: "")
@@ -215,6 +221,11 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
     fun cachedVehicle(): Vehicle? = pick(cachedVehicles())
     suspend fun currentVehicle(): Vehicle? = cachedVehicle() ?: pick(vehicles())
 
+    fun isMildHybrid(v: Vehicle): Boolean = v.reportsMildHybrid || settings.mildHybridOverride(v.vin)
+
+    fun parseStatus(v: Vehicle, raw: JSONObject, maintenance: JSONObject? = null): VehicleStatus =
+        VehicleStatus.parse(raw, maintenance, mildHybrid = isMildHybrid(v))
+
     suspend fun status(v: Vehicle): JSONObject = authed { token ->
         val url = "$API/connectedcar/v4/user/vehicles/${v.id}/status?${clientQuery()}"
         Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
@@ -241,10 +252,10 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
 
     /** One page of trips since the given ISO timestamp. */
     suspend fun trips(v: Vehicle, sinceIso: String?, pageToken: String? = null): JSONObject = authed { token ->
-        var url = "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}&distance=0.1-&pageSize=60"
-        if (sinceIso != null) url += "&timestamps=$sinceIso/"
-        if (pageToken != null) url += "&pageToken=$pageToken"
-        Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject ?: JSONObject()
+        val url = "$API/connectedcar/v4/user/vehicles/${v.id}/trips?${clientQuery()}"
+            .toHttpUrl().withTripFilters(sinceIso, pageToken)
+        Http.json(carHeaders(Request.Builder().url(url), token).get().build()) as? JSONObject
+            ?: throw ApiException(0, "Invalid trips response")
     }
 
     // ---------------- remote control setup ----------------
@@ -281,3 +292,11 @@ class StellantisApi(private val ctx: Context, private val secure: SecureStore, p
         const val K_SELECTED = "selected_vin"
     }
 }
+
+internal fun HttpUrl.withTripFilters(sinceIso: String?, pageToken: String?): HttpUrl = newBuilder()
+    .addQueryParameter("distance", "0.1-")
+    .addQueryParameter("pageSize", "60")
+    .apply {
+        if (sinceIso != null) addQueryParameter("timestamps", "$sinceIso/")
+        if (pageToken != null) addQueryParameter("pageToken", pageToken)
+    }.build()

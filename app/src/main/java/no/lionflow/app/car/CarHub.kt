@@ -1,6 +1,7 @@
 package no.lionflow.app.car
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,6 +20,7 @@ import no.lionflow.app.api.NobilApi
 import no.lionflow.app.api.OsmChargers
 import no.lionflow.app.api.RemoteControl
 import no.lionflow.app.api.Tracker
+import no.lionflow.app.api.TripHistory
 import no.lionflow.app.api.chargerFromJson
 import no.lionflow.app.api.objects
 import no.lionflow.app.api.toJson
@@ -113,7 +115,7 @@ object CarHub {
                 if (v == null) diag = "no vehicle found on the account"
                 if (v != null) {
                     diag = "vehicle ok, getting status…"
-                    val st = no.lionflow.app.model.ChargePower.record(VehicleStatus.parse(app.api.status(v), null))
+                    val st = no.lionflow.app.model.ChargePower.record(app.api.parseStatus(v, app.api.status(v)))
                     _status.value = st
                     diag = "status ok"
                     lastRefresh = System.currentTimeMillis()
@@ -205,20 +207,11 @@ object CarHub {
         scope.launch {
             try {
                 val v = app.api.currentVehicle() ?: return@launch
-                val since = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
-                    .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-                    .format(java.util.Date(System.currentTimeMillis() - 30 * 86_400_000L))
-                val all = mutableListOf<Trip>()
-                var page: String? = null
-                var guard = 0
-                do {
-                    val j = app.api.trips(v, since, page)
-                    j.optJSONObject("_embedded")?.optJSONArray("trips")?.objects()?.forEach { all += Trip.parse(it) }
-                    page = j.optJSONObject("_links")?.optJSONObject("next")?.optString("href")
-                        ?.substringAfter("pageToken=", "")?.substringBefore("&")?.ifEmpty { null }
-                    guard++
-                } while (page != null && guard < 50)
-                _trips.value = all.distinctBy { it.id }.sortedByDescending { it.startMillis ?: 0L }
+                val since = TripHistory.cutoff(System.currentTimeMillis(), 30)
+                val history = TripHistory.load(since) { sinceIso, token -> app.api.trips(v, sinceIso, token) }
+                _trips.value = history.trips
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 tripsLoadedAt = 0L
                 if (_trips.value == null) _trips.value = emptyList()
@@ -272,7 +265,7 @@ object CarHub {
     fun batteryLine(ctx: Context): String {
         val st = _status.value ?: return if (app(ctx).api.isSignedIn) "Getting car status…" else "Sign in on your phone"
         val s = app(ctx).settings.value
-        return "${st.batteryPct?.toInt() ?: "—"} %  ·  ${fmtDistance(st.rangeKm, s)}"
+        return "${st.displayLevelPct?.toInt() ?: "—"} %  ·  ${fmtDistance(st.displayRangeKm, s)}"
     }
 
     fun chargingLine(st: VehicleStatus): String = when {
@@ -285,7 +278,8 @@ object CarHub {
     fun detailLine(ctx: Context): String {
         val st = _status.value ?: return "LionFlow"
         val s = app(ctx).settings.value
-        val parts = mutableListOf(chargingLine(st))
+        val parts = mutableListOf<String>()
+        if (!st.isMildHybrid) parts += chargingLine(st)
         st.outsideTempC?.let { parts += "${fmtTemp(it, s)} outside" }
         if (st.preconditioningOn) parts += "pre-heating"
         return parts.joinToString(" · ")

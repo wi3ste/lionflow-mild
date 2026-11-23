@@ -1,5 +1,6 @@
 package no.lionflow.app.model
 
+import no.lionflow.app.api.num
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -62,15 +63,23 @@ object TripImport {
         val sep = listOf(';', '\t', ',').maxByOrNull { c -> head.count { it == c } } ?: ','
         val cols = split(head, sep).map { norm(it) }
         // LionFlow's own export.
-        if (cols.firstOrNull() == "id" && cols.getOrNull(1) == "start") return lines.drop(1).mapNotNull { own(split(it, sep)) }
+        if (cols.firstOrNull() == "id" && cols.getOrNull(1) == "start") {
+            val liters = cols.indexOf("fuel_liters")
+            val rate = cols.indexOf("avg_l_per_100km")
+            val estimated = cols.indexOf("fuel_units_estimated")
+            return lines.drop(1).mapNotNull { line -> own(split(line, sep), liters, rate, estimated) }
+        }
 
         fun find(vararg words: String, not: List<String> = emptyList()) = cols.indexOfFirst { c -> words.any { c.contains(it) } && not.none { c.contains(it) } }
         val iStart = find("start", "debut", "départ", "depart", "beginn", "inicio", "partenza", "begin", "dato", "date", not = listOf("km", "mileage", "kilom", "odom", "lieu", "adresse", "address", "posit", "place", "lat", "lon"))
         val iEnd = find("end", "fin", "arrivee", "arrivée", "ende", "llegada", "arrivo", "slutt", not = listOf("km", "mileage", "kilom", "odom", "lieu", "adresse", "address", "posit", "place", "lat", "lon"))
         val iKm = find("distance", "km", "kilom", "afstand", "strecke", "lengde")
         val iDur = find("duree", "durée", "duration", "dauer", "duracion", "durata", "varighet", "tid", "time")
-        val iKwh = find("kwh", "energ", "electri", not = listOf("/100", "100 km", "100km", "moy", "avg", "average"))
-        val iAvg = find("/100", "100 km", "100km", "moyen", "average", "durchschn", "media", "snitt")
+        val iKwh = find("kwh", not = listOf("/100", "/ 100", "100 km", "100km", "moy", "avg", "average"))
+        val iAvg = cols.indexOfFirst { "kwh" in it && ("100" in it || "avg" in it || "average" in it) }
+        val fuelRate = Regex("\\b(?:l|litr(?:e|o|i|es|os|as)?|liter[s]?)\\s*/\\s*100\\s*km\\b")
+        val iFuelAvg = cols.indexOfFirst { fuelRate.containsMatchIn(it) }
+        val iLiters = cols.indexOfFirst { !fuelRate.containsMatchIn(it) && ("litr" in it || "liter" in it || it.endsWith("(l)") || it.endsWith("[l]")) }
         if (iStart < 0 || iKm < 0) return emptyList()
         val out = ArrayList<Row>()
         for (line in lines.drop(1)) {
@@ -80,12 +89,15 @@ object TripImport {
             val dur = c.getOrNull(iDur)?.let { minutes(it) }
             val end = c.getOrNull(iEnd)?.let { date(it) } ?: dur?.let { start + (it * 60_000).toLong() } ?: start
             val kwh = num(c.getOrNull(iKwh)) ?: num(c.getOrNull(iAvg))?.let { it * km / 100 } ?: 0.0
-            out += Row(store("csv-$start-${(km * 10).toLong()}", start, end, km, kwh), null)
+            val trip = store("csv-$start-${(km * 10).toLong()}", start, end, km, kwh)
+            num(c.getOrNull(iLiters))?.takeIf { it.isFinite() && it >= 0 }?.let { trip.put("liters", it) }
+            num(c.getOrNull(iFuelAvg))?.takeIf { it.isFinite() && it >= 0 }?.let { trip.put("avgL", it) }
+            out += Row(trip, null)
         }
         return out
     }
 
-    private fun own(c: List<String>): Row? {
+    private fun own(c: List<String>, liters: Int, rate: Int, estimated: Int): Row? {
         if (c.size < 4) return null
         val iso = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
         val start = c.getOrNull(1)?.let { try { iso.parse(it)?.time } catch (_: Exception) { null } } ?: 0L
@@ -94,8 +106,25 @@ object TripImport {
             .put("km", c.getOrNull(3)?.toDoubleOrNull() ?: 0.0).put("min", c.getOrNull(4)?.toDoubleOrNull() ?: 0.0)
             .put("kwh", c.getOrNull(5)?.toDoubleOrNull() ?: 0.0).put("avg", c.getOrNull(6)?.toDoubleOrNull() ?: 0.0)
             .put("speed", c.getOrNull(7)?.toDoubleOrNull() ?: 0.0)
+        c.getOrNull(liters)?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }?.let { j.put("liters", it) }
+        c.getOrNull(rate)?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }?.let { j.put("avgL", it) }
+        if (c.getOrNull(estimated).equals("true", ignoreCase = true)) j.put("fuelUnitsEstimated", true)
         return Row(j, c.getOrNull(8)?.trim()?.takeIf { it.isNotEmpty() })
     }
+
+    fun restore(o: JSONObject): Trip = Trip(
+        id = o.optString("id"),
+        startMillis = o.optLong("start").takeIf { it > 0 },
+        endMillis = o.optLong("end").takeIf { it > 0 },
+        distanceKm = o.optDouble("km", 0.0),
+        durationSec = o.optDouble("min", 0.0) * 60,
+        kwh = o.num("kwh")?.takeIf { it > 0 },
+        avgKwhPer100 = o.num("avg")?.takeIf { it > 0 },
+        avgSpeedKmh = o.num("speed")?.takeIf { it > 0 },
+        liters = o.num("liters")?.takeIf { it.isFinite() && it >= 0 },
+        avgLPer100 = o.num("avgL")?.takeIf { it.isFinite() && it >= 0 },
+        fuelUnitsEstimated = o.optBoolean("fuelUnitsEstimated"),
+    )
 
     private fun store(id: String, start: Long, end: Long, km: Double, kwh: Double): JSONObject {
         val min = ((end - start) / 60_000.0).coerceAtLeast(0.0)
