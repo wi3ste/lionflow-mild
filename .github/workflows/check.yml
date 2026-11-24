@@ -26,3 +26,18 @@ jobs:
           name: LionFlow-fuel-trip-planner-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Allow the runner to use KVM
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'feature/fuel-trip-planner'
+        run: |
+          sudo chgrp "$(id -gn)" /dev/kvm
+          sudo chmod g+rw /dev/kvm
+      - name: Verify fuel markers and clusters on Android
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'feature/fuel-trip-planner'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=no.lionflow.app.ui.screens.FuelMapRenderingTest --no-daemon
