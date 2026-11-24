@@ -51,6 +51,7 @@ internal const val STATIONS = "lf-fuel-stations"
 internal const val CLUSTERS = "lf-fuel-clusters"
 internal const val DOTS = "lf-fuel-dots"
 private const val LABELS = "lf-fuel-labels"
+private const val LABEL_SOURCE = "lf-fuel-price-source"
 private const val STOPS = "lf-fuel-stops"
 private const val DETOURS = "lf-fuel-detours"
 private val NO_FEATURES = FeatureCollection.fromFeatures(emptyList<Feature>())
@@ -101,6 +102,7 @@ internal fun addFuelLayers(style: Style) {
     source(STATIONS, GeoJsonOptions().withCluster(true).withClusterMaxZoom(11).withClusterRadius(48))
     source(STOPS)
     source(DETOURS)
+    source(LABEL_SOURCE)
     val clustered = Expression.has("point_count")
     val individual = Expression.not(clustered)
     layer(DETOURS) { LineLayer(DETOURS, DETOURS).withProperties(
@@ -108,17 +110,16 @@ internal fun addFuelLayers(style: Style) {
     layer(CLUSTERS) { CircleLayer(CLUSTERS, STATIONS).withFilter(clustered).withProperties(
         PropertyFactory.circleColor("#805321"), PropertyFactory.circleRadius(16f), PropertyFactory.circleStrokeColor("#FFFFFF"),
         PropertyFactory.circleStrokeWidth(1.5f)) }
-    layer("lf-fuel-counts") { SymbolLayer("lf-fuel-counts", STATIONS).withFilter(clustered).withProperties(
-        PropertyFactory.textField(Expression.toString(Expression.get("point_count"))),
-        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textSize(12f), PropertyFactory.textAllowOverlap(true)) }
     layer(DOTS) { CircleLayer(DOTS, STATIONS).withFilter(individual).withProperties(
         PropertyFactory.circleColor(Expression.switchCase(
             Expression.eq(Expression.get("tone"), Expression.literal("cheap")), Expression.color(0xFF207445.toInt()),
             Expression.eq(Expression.get("tone"), Expression.literal("old")), Expression.color(0xFF706864.toInt()),
             Expression.color(0xFFB76518.toInt()))),
         PropertyFactory.circleRadius(7f), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(1.5f)) }
-    layer(LABELS) { SymbolLayer(LABELS, STATIONS).withFilter(individual).withProperties(
+    // An unloaded or unavailable glyph must never hold back the station tile itself.
+    layer(LABELS) { SymbolLayer(LABELS, LABEL_SOURCE).withProperties(
         PropertyFactory.textField(Expression.toString(Expression.get("price"))), PropertyFactory.textSize(12f),
+        PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
         PropertyFactory.textOffset(arrayOf(0f, 1.05f)), PropertyFactory.textColor("#272018"),
         PropertyFactory.textHaloColor("#FFFFFF"), PropertyFactory.textHaloWidth(2f)).apply { minZoom = 12f } }
     layer(STOPS) { CircleLayer(STOPS, STOPS).withProperties(
@@ -129,7 +130,9 @@ internal fun addFuelLayers(style: Style) {
 internal fun updateFuelCatalogLayer(style: Style, mapData: FuelMapData?) {
     addFuelLayers(style)
     val source = style.getSourceAs<GeoJsonSource>(STATIONS) ?: return
-    source.setGeoJson(mapData?.features ?: NO_FEATURES)
+    val features = mapData?.features ?: NO_FEATURES
+    source.setGeoJson(features)
+    style.getSourceAs<GeoJsonSource>(LABEL_SOURCE)?.setGeoJson(features)
     if (BuildConfig.DEBUG) Log.d(TAG, "source=$STATIONS features=${mapData?.stations?.size ?: 0} " +
         "layers=${listOf(CLUSTERS, DOTS, LABELS, STOPS).filter { style.getLayer(it) != null }}")
 }
