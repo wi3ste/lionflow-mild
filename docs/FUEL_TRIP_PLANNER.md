@@ -1,6 +1,6 @@
 # Fuel Trip Planner
 
-Open **Map → Plan a fuel trip** for a combustion, mild hybrid or full hybrid vehicle. A plug-in hybrid can plan in fuel-only mode. Select the fuel grade, enter the usable tank capacity, and check the starting level, reserve, consumption estimate and detour limit before routing. The start defaults to the vehicle's position, then to the phone's position when available. You can use up to three vias, make a round trip and pick a departure time for the stop ETAs. The map also has an independent **Fuel stations** layer and a manual refresh.
+Open **Map → Plan a fuel trip** for a combustion, mild hybrid or full hybrid vehicle. A plug-in hybrid can plan in fuel-only mode. Select the fuel grade, enter the usable tank capacity, and check the starting level, reserve, consumption estimate and detour limit before routing. The start defaults to the vehicle's position, then to the phone's position when available. You can use up to three vias, make a round trip and pick a departure time for the stop ETAs. The map has an independent **Fuel stations** layer, a compact vehicle panel and a manual refresh. The fuel source and licence are listed in **Settings** with the other data sources.
 
 ## Data and updates
 
@@ -14,7 +14,9 @@ The existing charger pipeline builds weekly global static tiles from Geofabrik a
 
 ## Vehicle inputs and consumption
 
-The planner uses the Stellantis fuel percentage when present. For petrol and diesel, it can estimate the starting quantity from reported fuel range and the baseline rate if the percentage is missing. The user can override the estimate, use a percentage or enter a quantity. Tank capacity uses manual entry because the current vehicle API model lacks a validated tank-capacity field. Capacity and manual consumption are saved per vehicle and grade. Hybrid profiles handle the electric contribution via the observed fuel rate and speed factors.
+The form marks departure, destination, tank capacity and starting fuel as required. Intermediate stops and trip settings are optional. The planner fills in the last Stellantis fuel percentage when available. For petrol and diesel, it can estimate the starting quantity from the reported range and baseline rate if the percentage is missing. The user can override either value and use a percentage or enter a quantity.
+
+The vehicle API's fuel readings give level and range. LionFlow can also fill in the tank capacity when the vehicle metadata identifies a documented model. The Peugeot 208 Hybrid 100 e-DCS6 uses 44 L for petrol. Other models currently use manual entry. Manual tank capacity and consumption are saved by vehicle and fuel grade. Hybrid profiles account for the electric contribution through observed fuel rates. [Peugeot technical specifications](https://www.peugeot.fr/content/dam/peugeot/france/b2c/documentation/catalogues/2412/CT_Nouvelle_208_applicable_au_02_janvier_2025.pdf)
 
 The planner builds its prediction after routing. It uses verified local GPS traces on the same road first, then comparable trips, then a robust estimate from all valid history. Without enough supported observations it uses the typical profile. The model compares average driving speed, distance and duration, plus the share of fast segments and nearby endpoints when available. A geographically matched trace must agree at nine points on the route. An average speed difference over 28 km/h rules out a comparable trip. A 150 km motorway trip can inform a much longer motorway journey while short urban trips tend to contribute to the car-wide fallback. A weighted median and robust outlier limits reduce the influence of unusual samples. History-based rates avoid a second generic speed adjustment. A manual rate remains available.
 

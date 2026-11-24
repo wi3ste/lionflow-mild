@@ -53,6 +53,8 @@ import no.lionflow.app.fuel.FuelStation
 import no.lionflow.app.fuel.FuelStop
 import no.lionflow.app.fuel.FuelStrategy
 import no.lionflow.app.fuel.FuelTripRequest
+import no.lionflow.app.fuel.defaultStartingFuel
+import no.lionflow.app.fuel.defaultTankCapacity
 import no.lionflow.app.plan.Place
 import no.lionflow.app.plan.Planner
 import no.lionflow.app.ui.Busy
@@ -73,6 +75,10 @@ import java.time.Instant
 import java.util.Date
 import java.util.Currency
 
+private const val DEFAULT_RESERVE = "10"
+private const val DEFAULT_MARGIN = "5"
+private const val DEFAULT_DETOUR = "8"
+
 internal class FuelFormState(
     private val planner: FuelPlanner,
     val vin: String,
@@ -83,39 +89,45 @@ internal class FuelFormState(
     var vias by mutableStateOf<List<Place?>>(emptyList())
     var round by mutableStateOf(false)
     var depart by mutableStateOf<Long?>(null)
-    var initial by mutableStateOf("")
+    var initial by mutableStateOf<String?>(null)
     var percent by mutableStateOf(true)
-    var profile by mutableStateOf(planner.setting(vin, "profile")?.let { name -> FuelProfile.entries.find { it.name == name } } ?: defaultProfile)
-    var reserve by mutableStateOf(planner.setting(vin, "reserve") ?: "10")
-    var safety by mutableStateOf(planner.setting(vin, "safety") ?: "5")
-    var detour by mutableStateOf(planner.setting(vin, "detour") ?: "8")
+    private val savedProfile = planner.setting(vin, "profile")?.let { name -> FuelProfile.entries.find { it.name == name } }
+    private var profileExplicit = savedProfile != null
+    var profile by mutableStateOf(savedProfile ?: defaultProfile)
+        private set
+    var reserve by mutableStateOf(planner.setting(vin, "reserve") ?: DEFAULT_RESERVE)
+    var safety by mutableStateOf(planner.setting(vin, "safety") ?: DEFAULT_MARGIN)
+    var detour by mutableStateOf(planner.setting(vin, "detour") ?: DEFAULT_DETOUR)
     var strategy by mutableStateOf(FuelStrategy.BALANCED)
     private fun gradeKey(name: String) = "$name.${planner.grade.name}"
-    var capacity by mutableStateOf("")
+    var capacity by mutableStateOf<String?>(null)
         private set
     var manual by mutableStateOf("")
         private set
-    private val tankInputs = mutableMapOf<FuelGrade, Pair<String, String>>()
+    private val tankInputs = mutableMapOf<FuelGrade, Pair<String?, String>>()
 
     fun useGrade(grade: FuelGrade) {
         tankInputs[planner.grade] = capacity to manual
-        if (grade != planner.grade) initial = ""
+        if (grade != planner.grade) initial = null
         planner.grade = grade
         loadTank()
     }
 
     fun loadTank() {
         val draft = tankInputs[planner.grade]
-        capacity = draft?.first ?: planner.setting(vin, gradeKey("capacity")).orEmpty()
+        capacity = draft?.first ?: planner.setting(vin, gradeKey("capacity"))
         manual = draft?.second ?: planner.setting(vin, gradeKey("manual")).orEmpty()
     }
 
     fun setTank(value: String) { capacity = value }
+    fun useSuggestedTank() { capacity = null }
     fun updateManual(value: String) { manual = value }
+    fun useProfile(value: FuelProfile) { profileExplicit = true; profile = value }
+    fun suggestProfile(value: FuelProfile) { if (!profileExplicit) profile = value }
 
     fun save() = planner.save(vin, mapOf(
         "grade" to planner.grade.name, "profile" to profile.name, "reserve" to reserve,
-        "safety" to safety, "detour" to detour, gradeKey("capacity") to capacity, gradeKey("manual") to manual,
+        "safety" to safety, "detour" to detour, gradeKey("capacity") to capacity.orEmpty(), gradeKey("manual") to manual,
     ))
 }
 
@@ -127,7 +139,8 @@ internal fun FuelTripForm(p: FuelPlanner, addresses: Planner, f: FuelFormState, 
     var field by remember { mutableIntStateOf(-1) }
     var query by remember { mutableStateOf("") }
     var picker by remember { mutableStateOf(false) }
-    var invalid by remember { mutableStateOf(false) }
+    var submitted by remember(f) { mutableStateOf(false) }
+    var showOptions by remember(f) { mutableStateOf(false) }
     var saved by remember(p.grade, f.capacity, f.manual, f.profile, f.reserve, f.safety, f.detour) { mutableStateOf(false) }
     val here = ui.status?.let { s -> if (s.lat != null && s.lon != null) Place("Car's position", "", s.lat, s.lon) else null }
         ?: if (ui.myLat != null && ui.myLon != null) Place("My position", "", ui.myLat, ui.myLon) else null
@@ -148,15 +161,19 @@ internal fun FuelTripForm(p: FuelPlanner, addresses: Planner, f: FuelFormState, 
     LaunchedEffect(field) { if (field >= 0) requester.requestFocus() }
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text("Required fields marked with *", style = Type.small, color = c.muted)
         for (i in listOf(0) + f.vias.indices.map { it + 2 } + 1) {
             val place = when (i) { 0 -> f.from ?: here; 1 -> f.to; else -> f.vias[i - 2] }
             AddressRow(
                 if (i == 0) LfIcons.Car else LfIcons.Pin, c.accentInk,
-                when (i) { 0 -> "From"; 1 -> "Where to?"; else -> "Via" },
+                when (i) { 0 -> "From *"; 1 -> "Where to? *"; else -> "Optional stop" },
                 place?.let(::placeName), field == i, query, requester, { query = it; addresses.search(it) },
                 { open(i) }, { if (i >= 2 && place == null) f.vias = f.vias.filterIndexed { n, _ -> n != i - 2 }; dismiss() },
                 onRemove = if (i >= 2) ({ f.vias = f.vias.filterIndexed { n, _ -> n != i - 2 }; dismiss() }) else null,
             )
+            if (submitted && field < 0 && place == null && i < 2) {
+                Text(if (i == 0) "Select a departure point" else "Select a destination", style = Type.small, color = c.danger)
+            }
         }
         if (field >= 0) {
             val results = if (query.trim().length < 2) addresses.saved + addresses.recent else addresses.results
@@ -175,12 +192,8 @@ internal fun FuelTripForm(p: FuelPlanner, addresses: Planner, f: FuelFormState, 
             Text("Add a stop on the way", color = c.accentInk, style = Type.small)
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FuelChoice(listOf(false, true), f.round, { if (it) "Round trip" else "One way" }) { f.round = it }
-            SecondaryButton(f.depart?.let { fuelDate(Instant.ofEpochMilli(it)) } ?: "Leave now") { picker = true }
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FuelChoice(FuelGrade.entries, p.grade, FuelGrade::label, f::useGrade)
-            FuelChoice(FuelProfile.entries, f.profile, FuelProfile::label) { f.profile = it }
+            FuelChoice(FuelProfile.entries, f.profile, FuelProfile::label, f::useProfile)
         }
         if (f.profile == FuelProfile.PLUG_IN) Text("Petrol or diesel range only", style = Type.small, color = c.muted)
 
@@ -188,66 +201,110 @@ internal fun FuelTripForm(p: FuelPlanner, addresses: Planner, f: FuelFormState, 
         val consumption = remember(grade, f.profile, ui.trips, f.manual) {
             FuelConsumption.estimate(grade, f.profile, ui.trips, f.manual.fuelNumber()?.takeIf { it in 0.5..40.0 }, 0.0)
         }
-        val tank = f.capacity.fuelNumber()
-        val pct = ui.status?.fuelPct?.takeIf { it in 0.0..100.0 }
-        val range = ui.status?.fuelRangeKm?.takeIf { it in 1.0..1600.0 && grade in setOf(FuelGrade.PETROL, FuelGrade.DIESEL) }
-        val amountGuess = if (tank != null && pct != null) pct * tank / 100 else range?.times(consumption.per100)?.div(100)
-            ?.let { if (tank != null) it.coerceAtMost(tank) else it }
-        val hint = if (f.percent) pct ?: if (tank != null && tank > 0) amountGuess?.times(100)?.div(tank) else null else amountGuess
-        FuelNumber(L10n.tr("Tank capacity") + " (${grade.unit})", f.capacity, f::setTank)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            FuelNumber(L10n.tr("Starting fuel") + " (${if (f.percent) "%" else grade.unit})", f.initial,
-                { f.initial = it }, Modifier.weight(1f), hint?.let { fuelNumber(it, 1) })
-            FuelChoice(listOf(true, false), f.percent, { if (it) "%" else grade.unit }) { selected ->
-                if (selected != f.percent) { f.percent = selected; f.initial = "" }
+        val modelTank = defaultTankCapacity(ui.vehicle, grade)
+        val tankInput = f.capacity ?: modelTank?.let { fuelNumber(it, 0) }.orEmpty()
+        val tank = tankInput.fuelNumber()?.takeIf { it in 1.0..300.0 }
+        val suggestedLevel = defaultStartingFuel(ui.vehicle, ui.status, grade, tank, f.percent, consumption.per100)
+        val levelInput = f.initial ?: suggestedLevel?.let { fuelNumber(it.value, 1) }.orEmpty()
+        val initial = f.initial
+        val level = (if (initial == null) suggestedLevel?.value else initial.fuelNumber())
+            ?.takeIf { it >= 0 && (if (f.percent) it <= 100 else tank != null && it <= tank) }
+
+        FuelNumber(
+            L10n.tr("Tank capacity") + " (${grade.unit}) *", tankInput, f::setTank,
+            hint = if (f.capacity == null && modelTank != null) "Capacity from vehicle specifications" else null,
+            error = if (submitted && tank == null) "Enter a tank capacity between 1 and 300." else null,
+        )
+        if (modelTank != null && f.capacity != null && tank != modelTank) {
+            TextButton(onClick = f::useSuggestedTank) {
+                Text("Use vehicle tank capacity", style = Type.small, color = c.accentInk)
             }
         }
-        if (f.initial.isBlank() && hint != null) Text(
-            if (pct != null) "Starting level from the vehicle" else "Starting level estimated from reported range",
-            style = Type.small, color = c.muted,
-        )
-        FuelNumber(L10n.tr("Consumption override") + " (${grade.unit}/100 km)", f.manual, f::updateManual)
-        if (f.manual.isBlank()) Text("Consumption is estimated after routing.", style = Type.small, color = c.muted)
-        FuelNumber(L10n.tr("Minimum reserve") + " (%)", f.reserve, { f.reserve = it })
-        FuelNumber(L10n.tr("Consumption safety margin") + " (%)", f.safety, { f.safety = it })
-        FuelNumber(L10n.tr("Maximum detour per stop") + " (km)", f.detour, { f.detour = it })
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FuelChoice(FuelServiceFilter.entries, p.service, FuelServiceFilter::label) { p.service = it }
-            FuelChoice(FuelStrategy.entries, f.strategy, FuelStrategy::label) { f.strategy = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+            FuelNumber(
+                L10n.tr("Starting fuel") + " (${if (f.percent) "%" else grade.unit}) *", levelInput,
+                { f.initial = it }, Modifier.weight(1f),
+                hint = if (f.initial == null && suggestedLevel != null) {
+                    if (suggestedLevel.fromGauge) "Starting level from the vehicle" else "Starting level estimated from reported range"
+                } else null,
+                error = when {
+                    !submitted || level != null -> null
+                    f.percent -> "Enter a starting level from 0 to 100%."
+                    else -> "Enter an amount within the tank capacity."
+                },
+            )
+            Box(Modifier.padding(top = 8.dp)) {
+                FuelChoice(listOf(true, false), f.percent, { if (it) "%" else grade.unit }) { selected ->
+                    if (selected != f.percent) {
+                        f.initial = f.initial?.let { text ->
+                            val current = text.fuelNumber()
+                            if (current == null || tank == null) "" else {
+                                val converted = fuelNumber(if (selected) current / tank * 100 else tank * (current / 100), 2)
+                                if (!selected && current <= 100 && (converted.fuelNumber() ?: 0.0) > tank) tankInput else converted
+                            }
+                        }
+                        f.percent = selected
+                    }
+                }
+            }
         }
-        val reserve = f.reserve.fuelNumber()?.takeIf { it in 0.0..90.0 }
-        val safety = f.safety.fuelNumber()?.takeIf { it in 0.0..50.0 }
-        val detour = f.detour.fuelNumber()?.takeIf { it in 0.5..30.0 }
-        val validSettings = tank != null && tank in 1.0..300.0 && reserve != null && safety != null && detour != null &&
-            (f.manual.isBlank() || f.manual.fuelNumber()?.let { it in 0.5..40.0 } == true)
-        if (f.vin.isNotBlank() && validSettings) SecondaryButton("Save vehicle fuel settings") {
-            f.save()
-            saved = true
-            invalid = false
+        if (f.initial != null && suggestedLevel != null) {
+            TextButton(onClick = { f.initial = null }) {
+                Text(if (suggestedLevel.fromGauge) "Use vehicle fuel level" else "Use estimated fuel level", style = Type.small, color = c.accentInk)
+            }
         }
-        if (saved) Text("Vehicle fuel settings saved", color = c.muted, style = Type.tiny)
-        PrimaryButton("Plan fuel trip", Modifier.fillMaxWidth(), icon = LfIcons.Route, enabled = p.busy == null && f.to != null) {
+
+        val reserve = f.reserve.ifBlank { DEFAULT_RESERVE }.fuelNumber()?.takeIf { it in 0.0..90.0 }
+        val safety = f.safety.ifBlank { DEFAULT_MARGIN }.fuelNumber()?.takeIf { it in 0.0..50.0 }
+        val detour = f.detour.ifBlank { DEFAULT_DETOUR }.fuelNumber()?.takeIf { it in 0.5..30.0 }
+        val manual = f.manual.fuelNumber()?.takeIf { it in 0.5..40.0 }
+        val optionsValid = reserve != null && safety != null && detour != null && (f.manual.isBlank() || manual != null)
+        SecondaryButton(if (showOptions) "Hide optional trip settings" else "Show optional trip settings") { showOptions = !showOptions }
+        if (showOptions) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FuelChoice(listOf(false, true), f.round, { if (it) "Round trip" else "One way" }) { f.round = it }
+                SecondaryButton(f.depart?.let { fuelDate(Instant.ofEpochMilli(it)) } ?: "Leave now") { picker = true }
+            }
+            FuelNumber(L10n.tr("Consumption override") + " (${grade.unit}/100 km)", f.manual, f::updateManual,
+                hint = if (f.manual.isBlank()) "Consumption is estimated after routing." else null,
+                error = if (submitted && f.manual.isNotBlank() && manual == null) "Enter a consumption between 0.5 and 40." else null)
+            FuelNumber(L10n.tr("Minimum reserve") + " (%)", f.reserve, { f.reserve = it }, default = DEFAULT_RESERVE,
+                error = if (submitted && reserve == null) "Enter a reserve from 0 to 90%." else null)
+            FuelNumber(L10n.tr("Consumption safety margin") + " (%)", f.safety, { f.safety = it }, default = DEFAULT_MARGIN,
+                error = if (submitted && safety == null) "Enter a margin from 0 to 50%." else null)
+            FuelNumber(L10n.tr("Maximum detour per stop") + " (km)", f.detour, { f.detour = it }, default = DEFAULT_DETOUR,
+                error = if (submitted && detour == null) "Enter a detour between 0.5 and 30 km." else null)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FuelChoice(FuelServiceFilter.entries, p.service, FuelServiceFilter::label) { p.service = it }
+                FuelChoice(FuelStrategy.entries, f.strategy, FuelStrategy::label) { f.strategy = it }
+            }
+            if (f.vin.isNotBlank() && tank != null && optionsValid) SecondaryButton("Save vehicle fuel settings") {
+                f.save()
+                saved = true
+            }
+            if (saved) Text("Vehicle fuel settings saved", color = c.muted, style = Type.tiny)
+        }
+
+        PrimaryButton("Plan fuel trip", Modifier.fillMaxWidth(), icon = LfIcons.Route, enabled = p.busy == null) {
             val from = f.from ?: here?.let { position ->
                 p.result?.request?.from?.takeIf { previous -> previous.name == position.name && previous.detail.isEmpty() &&
                     no.lionflow.app.plan.Geo.km(previous.lat, previous.lon, position.lat, position.lon) < 0.10 } ?: position
             }
             val to = f.to
-            val level = if (f.initial.isBlank()) hint else f.initial.fuelNumber()
-            if (!validSettings || from == null || to == null || level == null ||
-                level !in 0.0..(if (f.percent) 100.0 else tank) || f.vias.any { it == null }) {
-                invalid = true
+            if (!optionsValid) showOptions = true
+            if (from == null || to == null || tank == null || level == null || reserve == null || safety == null ||
+                detour == null || !optionsValid) {
+                submitted = true
                 return@PrimaryButton
             }
-            invalid = false
+            submitted = false
             focus.clearFocus()
             f.save()
-            val initial = if (f.percent) tank * level / 100 else level
+            val startingAmount = if (f.percent) tank * (level / 100) else level
             p.calculate(FuelTripRequest(from, to, f.vias.filterNotNull(), f.round,
                 f.depart?.let(Instant::ofEpochMilli)?.takeIf { it > Instant.now() } ?: Instant.now(), grade, p.service,
-                f.profile, f.manual.fuelNumber(), checkNotNull(safety),
-                FuelConstraints(tank, initial, tank * reserve / 100, f.strategy), detour))
+                f.profile, manual, safety, FuelConstraints(tank, startingAmount, tank * reserve / 100, f.strategy), detour))
         }
-        if (invalid) Text("Check departure, tank capacity, starting fuel and limits.", style = Type.small, color = c.danger)
         FuelProgress(p)
     }
     if (picker) DepartPicker(f.depart, { f.depart = it; picker = false }, { picker = false })
@@ -269,12 +326,23 @@ internal fun <T> FuelChoice(options: List<T>, value: T, label: (T) -> String, on
 }
 
 @Composable
-private fun FuelNumber(label: String, value: String, change: (String) -> Unit, modifier: Modifier = Modifier, hint: String? = null) {
+private fun FuelNumber(
+    label: String, value: String, change: (String) -> Unit, modifier: Modifier = Modifier,
+    hint: String? = null, error: String? = null, default: String? = null,
+) {
     val c = LocalLf.current
-    OutlinedTextField(value, { change(it.take(9)) }, modifier = modifier.fillMaxWidth(), singleLine = true,
+    OutlinedTextField(
+        value, { change(it.take(9)) }, modifier = modifier.fillMaxWidth(), singleLine = true,
         textStyle = Type.body.copy(color = c.text), label = { androidx.compose.material3.Text(label, color = c.muted, style = Type.small) },
-        placeholder = hint?.let { { Text(it, color = c.muted, style = Type.body) } }, shape = RoundedCornerShape(14.dp),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+        isError = error != null, shape = RoundedCornerShape(14.dp),
+        supportingText = when {
+            error != null -> { { Text(error, color = c.danger, style = Type.small) } }
+            hint != null -> { { Text(hint, color = c.muted, style = Type.small) } }
+            default != null && value.isBlank() -> { { Text("Default: $default", color = c.muted, style = Type.small) } }
+            else -> null
+        },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+    )
 }
 
 private fun String.fuelNumber(): Double? = trim().replace(',', '.').toDoubleOrNull()?.takeIf(Double::isFinite)

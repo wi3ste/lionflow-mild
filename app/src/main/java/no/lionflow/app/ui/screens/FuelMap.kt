@@ -8,9 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import no.lionflow.app.fuel.FuelCatalogState
 import no.lionflow.app.fuel.FuelGrade
@@ -19,7 +19,6 @@ import no.lionflow.app.fuel.FuelServiceFilter
 import no.lionflow.app.fuel.FuelSnapshot
 import no.lionflow.app.fuel.FuelStation
 import no.lionflow.app.fuel.FuelTripResult
-import no.lionflow.app.fuel.MimitFuelProvider
 import no.lionflow.app.plan.Geo
 import no.lionflow.app.ui.LocalPlatform
 import no.lionflow.app.ui.components.PrimaryButton
@@ -230,9 +229,17 @@ internal fun FuelSyncStatus(state: FuelCatalogState, refresh: () -> Unit) {
 }
 
 @Composable
-internal fun FuelAttribution() {
+internal fun CompactFuelSyncStatus(state: FuelCatalogState) {
     val c = LocalLf.current
-    val platform = LocalPlatform.current
-    Text("Fuel data: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0", style = Type.tiny, color = c.muted,
-        modifier = Modifier.clickable { platform.openUrl(MimitFuelProvider.PAGE) }.padding(vertical = 2.dp))
+    val snapshot = state.snapshot
+    val label = when {
+        state.refreshing -> "Updating fuel stations…"
+        state.failed && snapshot != null -> "Showing cached fuel stations"
+        state.failed -> "Fuel station update failed"
+        snapshot == null -> return
+        snapshot.dataset.stations.isEmpty() -> "No fuel stations available"
+        else -> "Stations updated ${fuelDate(snapshot.syncedAt)}"
+    }
+    Text(label, style = Type.tiny, color = if (state.failed) c.danger else c.muted,
+        maxLines = 1, overflow = TextOverflow.Ellipsis)
 }

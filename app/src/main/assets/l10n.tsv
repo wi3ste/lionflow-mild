@@ -280,7 +280,7 @@ Reset rotation to north	Réorienter vers le nord	Nach Norden ausrichten	Orientar
 Show my location	Afficher ma position	Meinen Standort zeigen	Mostrar mi ubicación	Vis posisjonen min
 Navigate	Itinéraire	Navigieren	Navegar	Naviger	Avvia navigazione
 Open in Maps	Ouvrir dans Maps	In Maps öffnen	Abrir en Maps	Åpne i Kart	Apri in Mappe
-Your car	Votre voiture	Ihr Auto	Tu coche	Bilen din
+Your car	Votre voiture	Ihr Auto	Tu coche	Bilen din	La tua auto
  · tap a charger for details	 · touchez une borne pour les détails	 · Ladestation antippen für Details	 · toca un cargador para ver detalles	 · trykk på en lader for detaljer
 Position not available yet	Position pas encore disponible	Position noch nicht verfügbar	Posición aún no disponible	Posisjon ikke tilgjengelig ennå
 Map © OpenStreetMap contributors · OpenFreeMap	Carte © contributeurs OpenStreetMap · OpenFreeMap	Karte © OpenStreetMap-Mitwirkende · OpenFreeMap	Mapa © colaboradores de OpenStreetMap · OpenFreeMap	Kart © OpenStreetMap-bidragsytere · OpenFreeMap
@@ -1030,7 +1030,7 @@ One way					Sola andata
 Leave now					Parti ora
 Tank capacity					Capacità del serbatoio
 Starting fuel					Carburante iniziale
-Starting level from the vehicle					Livello iniziale rilevato dal veicolo
+Starting level from the vehicle					Ultimo livello rilevato dal veicolo
 Starting level estimated from reported range					Livello iniziale stimato dall’autonomia dichiarata
 Consumption override					Consumo personalizzato
 Minimum reserve					Riserva minima
@@ -1150,3 +1150,27 @@ Router unavailable					Servizio di routing indisponibile
 Router timeout					Tempo di risposta del routing scaduto
 Router rate limit					Limite di richieste del servizio di routing
 Verification budget reached					Raggiunto il limite di verifiche per questo gruppo
+Required fields marked with *					I campi obbligatori sono contrassegnati con *
+From *					Partenza *
+Where to? *					Destinazione *
+Optional stop					Tappa facoltativa
+Select a departure point					Seleziona il punto di partenza
+Select a destination					Seleziona una destinazione
+Capacity from vehicle specifications					Capacità dalla scheda del veicolo
+Enter a tank capacity between 1 and 300.					Inserisci una capacità compresa tra 1 e 300.
+Enter a starting level from 0 to 100%.					Inserisci un livello iniziale tra 0 e 100%.
+Enter an amount within the tank capacity.					Inserisci una quantità entro la capacità del serbatoio.
+Show optional trip settings					Mostra le opzioni facoltative
+Hide optional trip settings					Nascondi le opzioni facoltative
+Enter a consumption between 0.5 and 40.					Inserisci un consumo compreso tra 0,5 e 40.
+Enter a reserve from 0 to 90%.					Inserisci una riserva tra 0 e 90%.
+Enter a margin from 0 to 50%.					Inserisci un margine tra 0 e 50%.
+Enter a detour between 0.5 and 30 km.					Inserisci una deviazione compresa tra 0,5 e 30 km.
+Default: {0}					Valore predefinito: {0}
+Center map on your car					Centra la mappa sulla tua auto
+Showing cached fuel stations					Distributori da cache
+Fuel station update failed					Aggiornamento distributori non riuscito
+Stations updated {0}					Distributori aggiornati il {0}
+Use vehicle tank capacity					Usa la capacità da scheda veicolo
+Use vehicle fuel level					Usa il livello del veicolo
+Use estimated fuel level					Usa il livello stimato

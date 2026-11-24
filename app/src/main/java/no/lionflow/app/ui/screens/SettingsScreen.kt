@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import no.lionflow.app.BuildConfig
 import no.lionflow.app.api.MildHybridDetection
 import no.lionflow.app.data.AppSettings
+import no.lionflow.app.fuel.MimitFuelProvider
 import no.lionflow.app.ui.AppViewModel
 import no.lionflow.app.ui.LocalPlatform
 import no.lionflow.app.ui.ScreenColumn
@@ -318,6 +319,11 @@ fun SettingsScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         Text(
             "LionFlow ${BuildConfig.VERSION_NAME} · Unofficial: not affiliated with Stellantis, Peugeot, Citroën, DS Automobiles, Opel or Vauxhall.\nMap and chargers © OpenStreetMap contributors, OpenFreeMap · Weather MET Norway · Chargers NOBIL (optional)",
             style = Type.tiny, color = c.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Fuel data: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0",
+            style = Type.tiny, color = c.muted, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { platform.openUrl(MimitFuelProvider.PAGE) }.padding(vertical = 4.dp),
         )
     }
 

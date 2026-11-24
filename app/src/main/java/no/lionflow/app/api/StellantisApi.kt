@@ -95,6 +95,13 @@ data class Vehicle(
     val reportsMildHybrid: Boolean
         get() = mildHybridDetection.detected
 
+    internal val specifiedPetrolTankLiters: Double?
+        get() = 44.0.takeIf {
+            brand.equals("Peugeot", ignoreCase = true) &&
+                powertrain in petrolHybridTankMotorizations &&
+                labels.none(otherModel::containsMatchIn) && labels.any(hybrid208Tank::containsMatchIn)
+        }
+
     internal fun isMildHybrid(manualOverride: Boolean?): Boolean = manualOverride ?: reportsMildHybrid
 
     internal fun kind(manualOverride: Boolean?): String = when {
@@ -168,10 +175,13 @@ data class Vehicle(
         )
         private val genericHybridMotorizations = setOf("hybrid", "hev", "hybridelectricvehicle", "fullhybrid")
         private val ambiguousMotorizations = genericHybridMotorizations + setOf("", "unknown")
+        private val petrolHybridTankMotorizations = ambiguousMotorizations + mildHybridMotorizations + setOf("petrol", "gasoline")
         private val labelSeparator = Regex("""[^\p{L}\p{N}]+""")
         private val otherModel = Regex("""\b(?:phev|bev|plug ?in|electric|e ?208)\b""")
         private val plugInModel = Regex("""\b(?:phev|plug ?in hybrid|hybrid plug ?in)\b""")
         private val hybrid208 = Regex("""\b208(?: (?![0-9]{3,4}\b)[\p{L}\p{N}]+)*? hybrid 100 e ?dcs ?6\b""")
+        // Peugeot 208 technical specifications, January 2025 (linked in docs/FUEL_TRIP_PLANNER.md).
+        private val hybrid208Tank = Regex("""\b208(?: [\p{L}]+)*? hybrid 100(?: ?(?:cv|ch|hp))?\b(?! kw\b)""")
 
         private fun JSONObject.metadataString(key: String): String? =
             (opt(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }

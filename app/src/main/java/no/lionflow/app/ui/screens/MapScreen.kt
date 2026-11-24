@@ -126,19 +126,18 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val supportsFuel = !electric && (ui.status != null || (ui.vehicle != null && powertrain != "Electric"))
     val fp = vm.fuelPlanner
     val vin = ui.vehicle?.vin.orEmpty()
-    val fuelForm = remember(vin, powertrain, ui.status?.isMildHybrid, ui.status?.energyType) {
-        val profile = when {
-            ui.status?.isMildHybrid == true || powertrain == "48 V mild hybrid" -> FuelProfile.MILD
-            ui.status?.energyType == "Hybrid" || powertrain == "Plug-in hybrid" -> FuelProfile.PLUG_IN
-            powertrain == "Hybrid (type unknown)" -> FuelProfile.FULL
-            else -> FuelProfile.COMBUSTION
-        }
-        FuelFormState(fp, vin, profile)
+    val suggestedProfile = when {
+        ui.status?.isMildHybrid == true || powertrain == "48 V mild hybrid" -> FuelProfile.MILD
+        ui.status?.energyType == "Hybrid" || powertrain == "Plug-in hybrid" -> FuelProfile.PLUG_IN
+        powertrain == "Hybrid (type unknown)" -> FuelProfile.FULL
+        else -> FuelProfile.COMBUSTION
     }
+    val fuelForm = remember(vin) { FuelFormState(fp, vin, suggestedProfile) }
     LaunchedEffect(fuelForm) {
         fp.selectVehicle(vin, ui.vehicle?.motorization.orEmpty())
         fuelForm.loadTank()
     }
+    LaunchedEffect(fuelForm, suggestedProfile) { fuelForm.suggestProfile(suggestedProfile) }
     var fuelLayer by remember(vin, supportsFuel) { mutableStateOf(supportsFuel) }
     var selectedFuel by remember(vin) { mutableStateOf<FuelStation?>(null) }
     var fuelMap by remember { mutableStateOf<FuelMapData?>(null) }
@@ -416,8 +415,38 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             ) { LfIcon(LfIcons.Locate, Color(0xFF3D7BE0), 20.dp) }
         }
 
-        // Bottom card (not planning): the tapped charger, or the car
-        if (!p.open && !fuelOpen) Column(
+        val fuelOverview = fuelVisible && selectedFuel == null && selected == null
+        if (!p.open && !fuelOpen && fuelOverview) {
+            val shape = RoundedCornerShape(18.dp)
+            val st = ui.status
+            val position = if (st?.lat != null && st.lon != null) LatLng(st.lat, st.lon) else null
+            Column(Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth().shadow(6.dp, shape).clip(shape).background(c.card).border(1.dp, c.line, shape),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                        .clickable(enabled = position != null, role = Role.Button, onClickLabel = L10n.tr("Center map on your car")) {
+                            position?.let { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(it, 15.0)) }
+                        }.padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        LfIcon(LfIcons.Car, c.accentInk, 20.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text("Your car", style = Type.label, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            CompactFuelSyncStatus(catalog)
+                        }
+                    }
+                    androidx.compose.material3.IconButton(enabled = !catalog.refreshing, onClick = { fp.refresh(force = true) }) {
+                        LfIcon(LfIcons.Refresh, if (catalog.refreshing) c.muted else c.accentInk, 20.dp, L10n.tr("Refresh fuel stations"))
+                    }
+                }
+                Text("Map © OpenStreetMap contributors · OpenFreeMap", style = Type.tiny.copy(fontSize = 10.sp), color = c.muted,
+                    modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(c.card)
+                        .clickable { platform.openUrl("https://www.openstreetmap.org/copyright") }.padding(horizontal = 5.dp, vertical = 2.dp))
+            }
+        }
+
+        // Bottom card for map details and the charging overview.
+        if (!p.open && !fuelOpen && !fuelOverview) Column(
             Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp).fillMaxWidth().padding(12.dp)
                 .shadow(10.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.card).border(1.dp, c.line, RoundedCornerShape(24.dp))
                 .padding(16.dp),
@@ -450,17 +479,12 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(c.raised), contentAlignment = Alignment.Center) { LfIcon(LfIcons.Car, c.accentInk, 20.dp) }
                     Column(Modifier.weight(1f)) {
                         Text("Your car", style = Type.label, color = c.text)
-                        Text(if (fuelVisible) "Tap a fuel station for details" else if (carLat != null) (if (moving) "Driving" else "Parked") + " · tap a charger for details" else "Position not available yet", style = Type.small, color = c.muted)
+                        Text(if (carLat != null) (if (moving) "Driving" else "Parked") + " · tap a charger for details" else "Position not available yet", style = Type.small, color = c.muted)
                     }
                     if (carLat != null && carLon != null) Text("Go", style = Type.label, color = c.accentInk, modifier = Modifier.clickable {
                         map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(carLat, carLon), 15.0))
                     }.padding(8.dp))
                 }
-            }
-            if (fuelVisible) {
-                FuelSyncStatus(catalog) { fp.refresh(force = true) }
-                if (!catalog.refreshing) SecondaryButton("Refresh fuel stations") { fp.refresh(force = true) }
-                FuelAttribution()
             }
             Text("Map © OpenStreetMap contributors · OpenFreeMap" + if (!fuelVisible && ui.chargers.isNotEmpty()) (if (s.chargerSource == "nobil") " · Chargers: NOBIL" else " · Chargers: OpenStreetMap") else "", style = Type.tiny.copy(fontSize = 10.sp), color = c.muted,
                 modifier = Modifier.clickable { platform.openUrl("https://www.openstreetmap.org/copyright") })
@@ -533,7 +557,6 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                         SecondaryButton("Edit trip") { fp.editing = true }
                     }
                     FuelSyncStatus(catalog) { fp.refresh(force = true) }
-                    FuelAttribution()
                 }
             }
             if ((fuelSheet || (wide && !fp.editing)) && selectedFuel != null) {
