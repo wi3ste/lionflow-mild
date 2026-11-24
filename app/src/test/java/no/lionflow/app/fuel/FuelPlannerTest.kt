@@ -3,6 +3,8 @@ package no.lionflow.app.fuel
 import no.lionflow.app.model.Trip
 import no.lionflow.app.plan.Ferry
 import no.lionflow.app.plan.Place
+import no.lionflow.app.plan.PlanApi
+import kotlinx.coroutines.runBlocking
 import no.lionflow.app.plan.RouteData
 import org.junit.Assert.*
 import org.junit.Test
@@ -141,6 +143,68 @@ class FuelPlannerTest {
         assertEquals(0.0, result.stops.single().atMinute, 1e-8)
         assertEquals(2.0, result.remaining, 1e-8)
         assertNull(plan(8.0, 1.0, listOf(stop("away", 0.01, 1.50))))
+    }
+
+    @Test fun laterVerificationImprovesEconomyWhileFastKeepsMotorwayStation() = runBlocking {
+        val motorway = stop("motorway", 7.0, 2.0)
+        val cheaper = stop("local", 6.0, 1.70)
+        val tooFar = stop("too far", 6.0, 0.80)
+        val model = FuelConsumption.estimate(FuelGrade.PETROL, FuelProfile.COMBUSTION, emptyList(), 10.0, 0.0)
+        val projections = listOf(motorway) + List(7) { tooFar } + cheaper
+        var batches = 0
+        val verified = verifyFuelBatches(projections) { batch ->
+            batches++
+            if (batches == 2) assertEquals("motorway", plan(15.0, 10.0, listOf(motorway))!!.stops.single().candidate.station.id)
+            batch.mapNotNull { candidate ->
+                val road = when (candidate.station.id) {
+                    "motorway" -> PlanApi.FuelAccess(0.0, 0.0, 0.0, 0.0, "")
+                    "local" -> PlanApi.FuelAccess(5.0, 5.0, 4.0, 4.0, "")
+                    else -> PlanApi.FuelAccess(8.0, 8.0, 6.0, 6.0, "")
+                }
+                FuelCandidate.verified(candidate.projection, road, 10.0, model)
+            }
+        }
+        assertEquals(2, batches)
+        assertEquals(listOf("motorway", "local"), verified.map { it.station.id })
+        val economic = plan(15.0, 10.0, verified)!!
+        val fast = plan(15.0, 10.0, verified, FuelStrategy.FAST)!!
+        assertEquals("local", economic.stops.single().candidate.station.id)
+        assertEquals("motorway", fast.stops.single().candidate.station.id)
+        assertEquals(13.60, economic.purchaseCost!!, 1e-8)
+        assertEquals(economic.purchaseCost!!, economic.score, 1e-8)
+        assertTrue(economic.totalMin > fast.totalMin)
+    }
+
+    @Test fun strategiesAgreeWhenOneStopWinsBothPriceAndTime() {
+        val motorway = stop("motorway", 7.0, 1.2)
+        val slower = stop("slower", 6.0, 2.2, detourFuel = 0.25, detourMin = 5.0)
+        val plans = FuelStrategy.entries.map { plan(15.0, 10.0, listOf(slower, motorway), it)!! }
+        assertTrue(plans.all { it.stops == plans.first().stops })
+    }
+
+    @Test fun downstreamRejoinCreditsTheReplacedRoadAndCannotSkipALockedStop() {
+        val early = stop("early", 5.0, 1.2, detourFuel = 0.1, detourMin = 1.0)
+            .copy(rejoin = FuelRejoin(km = 56.0, minutes = 28.0, fuel = 5.6))
+        val inside = stop("inside", 5.4, 1.3)
+        val trip = plan(15.0, 10.0, listOf(early))!!
+        assertEquals(14.6, trip.used, 1e-8)
+        assertEquals(146.0, trip.totalKm, 1e-8)
+        assertEquals(74.0, trip.driveMin, 1e-8)
+        assertTrue(trip.remaining >= 2.0)
+        assertNull(plan(15.0, 10.0, listOf(early, inside), locked = mapOf(early.key to FuelStopEdit(), inside.key to FuelStopEdit())))
+    }
+
+    @Test fun shortlistIncludesCheapAndNearbyStationsAcrossTheRoute() {
+        val candidates = (0..8).flatMap { band ->
+            val near = stop("near-$band", band * 4.0, 2.0).projection
+            val cheap = stop("cheap-$band", band * 4.0 + 0.1, 1.2).projection.copy(straightKm = 0.5)
+            listOf(near, cheap)
+        }
+        val selected = FuelCorridor.shortlist(candidates, 12.0, now, 36).map { it.station.id }
+        for (band in 0..8) {
+            assertTrue("near-$band" in selected)
+            assertTrue("cheap-$band" in selected)
+        }
     }
 
     private fun plan(roadFuel: Double, initial: Double, candidates: List<FuelCandidate>, strategy: FuelStrategy = FuelStrategy.ECONOMY,

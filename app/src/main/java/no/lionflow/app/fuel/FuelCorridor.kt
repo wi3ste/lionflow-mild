@@ -102,20 +102,20 @@ internal object FuelCorridor {
     private fun interpolate(values: DoubleArray, i: Int, t: Double) = values[i - 1] + (values[i] - values[i - 1]) * t
 
     fun shortlist(
-        candidates: List<FuelProjection>, rangeFuel: Double, now: Instant, budget: Int, strategy: FuelStrategy,
+        candidates: List<FuelProjection>, rangeFuel: Double, now: Instant, budget: Int,
     ): List<FuelProjection> {
         if (candidates.isEmpty()) return emptyList()
-        val bucket = maxOf(0.2, rangeFuel / 3, (candidates.last().roadFuel - candidates.first().roadFuel) / (budget / 2).coerceAtLeast(1))
-        val groups = candidates.groupBy { ((it.roadFuel - candidates.first().roadFuel) / bucket).toInt() }.values
+        val bands = (budget / 3).coerceAtLeast(1)
+        val start = candidates.first().roadFuel
+        val bucket = maxOf(0.2, rangeFuel / 4, (candidates.last().roadFuel - start + 1e-6) / bands)
+        val groups = candidates.groupBy { ((it.roadFuel - start) / bucket).toInt() }.values
         val near = compareBy<FuelProjection> { it.straightKm }.thenBy { it.roadKm }.thenBy { it.station.id }
         val cheap = compareByDescending<FuelProjection> { it.offer.price != null && it.offer.fresh(now) }
             .thenBy { it.offer.price ?: Double.MAX_VALUE }.then(near)
         val ordered = groups.map { group ->
             val closest = group.sortedWith(near)
             val cheapest = group.sortedWith(cheap)
-            val first = if (strategy == FuelStrategy.FAST) closest else cheapest
-            val second = if (strategy == FuelStrategy.FAST) cheapest else closest
-            first.zip(second).flatMap { listOf(it.first, it.second) }.distinctBy { it.key }
+            closest.zip(cheapest).flatMap { listOf(it.first, it.second) }.distinctBy { it.key }
         }
         return (0 until (ordered.maxOfOrNull { it.size } ?: 0)).asSequence()
             .flatMap { rank -> ordered.asSequence().mapNotNull { it.getOrNull(rank) } }.take(budget).toList()

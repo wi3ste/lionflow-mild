@@ -13,6 +13,9 @@ import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -208,31 +211,48 @@ object PlanApi {
     }
 
     internal suspend fun fuelRoute(a: Place, b: Place, via: List<Place>): RouteData =
-        osrmRoutes(a, b, via, alternatives = false).first()
+        osrmRoutes(a, b, via, alternatives = false, fuelRouting = true).first()
 
     internal data class FuelAccess(val outKm: Double, val backKm: Double, val outMin: Double, val backMin: Double, val shape: String)
 
     internal class FuelRoutingRateLimited : Exception()
-    private val fuelRoutingClient by lazy { Http.client.newBuilder().callTimeout(5, TimeUnit.SECONDS).build() }
+    private val fuelRoutingClient by lazy {
+        Http.client.newBuilder().callTimeout(5, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
+    }
+    private val fuelRequestLock = Mutex()
+    private var priorFuelRequestNanos: Long? = null
+
+    private suspend fun paceFuelRequest() = fuelRequestLock.withLock {
+        val elapsed = priorFuelRequestNanos?.let { (System.nanoTime() - it) / 1_000_000 } ?: 1100
+        if (elapsed < 1100) delay(1100 - elapsed)
+        priorFuelRequestNanos = System.nanoTime()
+    }
 
     /** A directed loop from the route, through the station, back to the same carriageway. */
-    internal suspend fun fuelAccess(anchor: Place, station: Place, bearing: Int): FuelAccess? {
+    internal suspend fun fuelAccess(
+        anchor: Place, station: Place, bearing: Int, rejoin: Place = anchor, rejoinBearing: Int = bearing,
+    ): FuelAccess? {
         val position = "${num(anchor.lon)},${num(anchor.lat)}"
         val waypoint = "${num(station.lon)},${num(station.lat)}"
-        val way = "$position;$waypoint;$position"
+        val way = "$position;$waypoint;${num(rejoin.lon)},${num(rejoin.lat)}"
         val query = "overview=full&geometries=polyline6&steps=false&continue_straight=false" +
-            "&bearings=$bearing,45;;$bearing,45&radiuses=35;100;35"
+            "&bearings=$bearing,45;;$rejoinBearing,45&radiuses=35;100;35"
         // Keep the same public routing services as the main route, with at most one fallback.
         for (base in ROUTERS) {
             try {
                 val request = Request.Builder().url("$base$way?$query").header("User-Agent", Http.CONTACT_AGENT).build()
                 val j = withContext(Dispatchers.IO) {
+                    paceFuelRequest()
                     fuelRoutingClient.newCall(request).execute().use { response ->
-                        if (response.code == 429) throw FuelRoutingRateLimited()
-                        if (!response.isSuccessful) null else response.body?.string()?.let(::JSONObject)
+                        when {
+                            response.code == 429 -> throw FuelRoutingRateLimited()
+                            response.code == 400 -> JSONObject()
+                            !response.isSuccessful -> null
+                            else -> response.body?.string()?.let(::JSONObject)
+                        }
                     }
                 } ?: continue
-                val route = j.optJSONArray("routes")?.optJSONObject(0) ?: continue
+                val route = j.optJSONArray("routes")?.optJSONObject(0) ?: return null
                 val legs = route.optJSONArray("legs") ?: continue
                 val out = legs.optJSONObject(0) ?: continue
                 val back = legs.optJSONObject(1) ?: continue
@@ -253,7 +273,9 @@ object PlanApi {
         return null
     }
 
-    private suspend fun osrmRoutes(a: Place, b: Place, via: List<Place>, alternatives: Boolean = via.isEmpty()): List<RouteData> {
+    private suspend fun osrmRoutes(
+        a: Place, b: Place, via: List<Place>, alternatives: Boolean = via.isEmpty(), fuelRouting: Boolean = false,
+    ): List<RouteData> {
         val noRoute = "No road route found between these places"
         val way = (listOf(a) + via + listOf(b)).joinToString(";") { "${num(it.lon)},${num(it.lat)}" }
         // Servers differ in what they accept: ask for 2 alternatives, then 1, then none.
@@ -264,6 +286,7 @@ object PlanApi {
             for (alt in variants) {
                 try {
                     val url = base + "$way?overview=full&geometries=polyline6&annotations=distance,duration&steps=true$alt"
+                    if (fuelRouting) paceFuelRequest()
                     val j = Http.json(Request.Builder().url(url).header("User-Agent", Http.CONTACT_AGENT).get().build()) as? JSONObject
                     val rs = j?.let { PlanParse.routes(it) }.orEmpty().filter { it.totalKm > 0.05 }
                     if (rs.isNotEmpty()) return rs.take(3)
