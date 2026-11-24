@@ -194,6 +194,10 @@ data class Trip(
     val avgSpeedKmh: Double?,
     val liters: Double? = null,
     val avgLPer100: Double? = null,
+    // The display can use legacy estimates. Calibration applies stricter provenance checks.
+    val calibrationLPer100: Double? = avgLPer100 ?: liters?.takeIf { distanceKm > 0 }?.let { it * 100 / distanceKm },
+    val calibrationSpeedKmh: Double? = avgSpeedKmh,
+    val calibrationEnds: TripEnds? = null,
 ) {
     companion object {
         /** Peugeot doesn't document fuel units; pick the scale that gives a sane l/100 km (2–30). */
@@ -206,15 +210,71 @@ data class Trip(
             return listOf(1.0, 0.1, 0.01, 0.001).map { raw * it }.firstOrNull { it in 2.0..30.0 }
         }
 
+        private fun calibrationRate(fuel: JSONObject?, km: Double): Double? {
+            if (fuel == null || km !in 3.0..1500.0) return null
+            fun unit(field: String) = fuel.optString(field).lowercase(Locale.ROOT).replace(" ", "")
+            val total = fuel.num("consumption")?.takeIf { it > 0 && it.isFinite() }
+            val average = fuel.num("avgConsumption")?.takeIf { it > 0 && it.isFinite() }
+            val totalUnit = unit("consumptionUnit")
+            val averageUnit = unit("avgConsumptionUnit")
+            val totalScales = when (totalUnit) {
+                "l", "litre", "liter" -> listOf(1.0)
+                "cl" -> listOf(0.01)
+                "ml" -> listOf(0.001)
+                "" -> listOf(1.0, 0.01, 0.001)
+                else -> return null
+            }
+            val reportedAverages = when (averageUnit) {
+                "l/100km" -> listOfNotNull(average)
+                "km/l" -> listOfNotNull(average?.let { 100 / it })
+                "" -> average?.let { raw -> listOf(1.0, 0.1, 0.01, 0.001).flatMap { scale ->
+                    listOf(raw * scale, 100 / (raw * scale))
+                } }.orEmpty()
+                else -> return null
+            }.filter { it in 2.0..25.0 }
+            val measured = totalScales.mapNotNull { scale -> total?.let { it * scale * 100 / km }?.takeIf { it in 2.0..25.0 } }
+            fun agrees(rate: Double) = reportedAverages.any { kotlin.math.abs(it - rate) <= maxOf(0.35, rate * 0.10) }
+            // Explicit units are stronger than an unlabeled average. Where both units are given, check consistency.
+            if (totalUnit.isNotEmpty() && total != null) {
+                return measured.singleOrNull()?.takeIf { averageUnit.isEmpty() || average == null || agrees(it) }
+            }
+            if (averageUnit.isNotEmpty() && average != null) {
+                return if (total == null) reportedAverages.singleOrNull() else measured.filter(::agrees).singleOrNull()
+            }
+            // A single plausible scale is insufficient: require corroboration from the second field.
+            return measured.filter(::agrees).singleOrNull()
+        }
+
         fun parse(t: JSONObject, mildHybrid: Boolean = false): Trip {
             val electric = t.optJSONArray("energyConsumptions")?.objects()?.firstOrNull { !mildHybrid && it.optString("type") == "Electric" }
             val fuel = t.optJSONArray("energyConsumptions")?.objects()?.firstOrNull { it.optString("type") == "Fuel" }
             val km = t.num("distance") ?: 0.0
             val liters = litersOf(fuel?.num("consumption"), km)
+            val start = VehicleStatus.parseIso(t.str("startedAt") ?: t.str("createdAt"))
+            val end = VehicleStatus.parseIso(t.str("stoppedAt"))
+            fun position(key: String, time: Long?): Pair<Double, Double>? {
+                val position = t.optJSONObject(key) ?: return null
+                val properties = position.optJSONObject("properties")
+                if (properties?.str("type") == "Estimated") return null
+                val stamp = VehicleStatus.parseIso(properties?.str("createdAt"))
+                if (stamp != null && time != null && kotlin.math.abs(stamp - time) > 5 * 60_000L) return null
+                val geometry = position.optJSONObject("geometry") ?: return null
+                if (geometry.optString("type") != "Point") return null
+                val coordinates = geometry.optJSONArray("coordinates") ?: return null
+                val lat = coordinates.optDouble(1)
+                val lon = coordinates.optDouble(0)
+                return (lat to lon).takeIf { lat in -90.0..90.0 && lon in -180.0..180.0 && (lat != 0.0 || lon != 0.0) }
+            }
+            val from = position("startPosition", start)
+            val to = position("stopPosition", end)
+            val endpoints = if (from != null && to != null) TripEnds(from.first, from.second, to.first, to.second) else null
+            val incomplete = !t.optBoolean("done", true) || t.optJSONArray("faults")?.objects().orEmpty().any {
+                it.str("fault") in setOf("Unstarted", "DataLacking", "Unfinished") && it.str("cause") != "GeoPrivacy"
+            }
             return Trip(
                 id = t.optString("id"),
-                startMillis = VehicleStatus.parseIso(t.str("startedAt") ?: t.str("createdAt")),
-                endMillis = VehicleStatus.parseIso(t.str("stoppedAt")),
+                startMillis = start,
+                endMillis = end,
                 distanceKm = t.num("distance") ?: 0.0,
                 durationSec = t.num("duration"),
                 kwh = electric?.num("consumption")?.let { it / 1000.0 },
@@ -225,6 +285,9 @@ data class Trip(
                 liters = liters,
                 // Work it out from fuel used and distance; the car's own average comes in different units (some trips were km/l).
                 avgLPer100 = liters?.let { it / km * 100 } ?: per100Of(fuel?.num("avgConsumption")),
+                calibrationLPer100 = if (incomplete) null else calibrationRate(fuel, km),
+                calibrationSpeedKmh = null,
+                calibrationEnds = endpoints,
             )
         }
     }
