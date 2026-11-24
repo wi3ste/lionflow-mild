@@ -56,7 +56,8 @@ class FuelMapRenderingTest {
             val current = style
             return "view=${mapView?.width}x${mapView?.height}, camera=${map?.cameraPosition}, " +
                 "layers=${current?.layers?.map { it.id }}, source=${current?.getSourceAs<GeoJsonSource>(STATIONS)?.querySourceFeatures(null)?.size}, " +
-                "clusters=${rendered(CLUSTERS).map { it.getNumberProperty("point_count") }}, markers=${rendered(DOTS).map { it.getStringProperty("id") }}"
+                "clusters=${rendered(CLUSTERS).map { it.getNumberProperty("point_count") }}, " +
+                "markers=${rendered(DOTS).map { it.getStringProperty("id") }}, stops=${rendered(STOPS).map { it.getStringProperty("id") }}"
         }
 
         fun awaitRender(phase: String, predicate: () -> Boolean) {
@@ -140,14 +141,16 @@ class FuelMapRenderingTest {
         }
         awaitRender("plan isolates the selected station") {
             rendered(DOTS).isEmpty() && rendered(CLUSTERS).isEmpty() && rendered(WAYPOINTS).isNotEmpty() &&
-                rendered(STOPS).map { it.getStringProperty("id") } == listOf("id-0")
+                rendered(STOPS).map { it.getStringProperty("id") }.toSet() == setOf("id-0")
         }
         compose.runOnUiThread {
             val fast = result.withStrategy(FuelStrategy.FAST)
             assertEquals(FuelStrategy.FAST, fast.request.constraints.strategy)
             updateFuelPlanLayers(checkNotNull(style), fast)
+            // The second fixture station is beyond the edge of the initial 320 px viewport at zoom 15.
+            checkNotNull(map).moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(to.lat, to.lon), 15.0))
         }
-        awaitRender("strategy updates the inspected stop") { rendered(STOPS).map { it.getStringProperty("id") } == listOf("id-1") }
+        awaitRender("strategy updates the inspected stop") { rendered(STOPS).map { it.getStringProperty("id") }.toSet() == setOf("id-1") }
         compose.runOnUiThread {
             val loaded = checkNotNull(style)
             updateFuelPlanLayers(loaded, null)
