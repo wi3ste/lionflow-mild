@@ -189,13 +189,18 @@ internal class FuelLog(private val context: Context) {
     fun export(vin: String): File {
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
         val file = File(dir, "lionflow-refuels.csv")
-        fun field(value: Any?) = "\"" + value?.toString().orEmpty().replace("\"", "\"\"") + "\""
+        fun field(value: Any?): String {
+            var text = value?.toString().orEmpty()
+            if (value is String && text.trimStart().firstOrNull() in listOf('=', '+', '-', '@')) text = "'$text"
+            return "\"" + text.replace("\"", "\"\"") + "\""
+        }
         file.bufferedWriter(Charsets.UTF_8).use { out ->
-            out.appendLine("date,grade,unit,quantity,quantity_estimated,unit_price,confirmed_total,currency,station,odometer_km,full,source")
-            entries(vin).forEach {
-                out.appendLine(listOf(Instant.ofEpochMilli(it.at), it.grade, it.grade.unit, it.amount, it.quantityEstimated,
-                    it.unitPrice, it.total.takeIf { _ -> it.confirmed }, it.currency, it.stationName, it.odometer, it.full, it.source)
-                    .joinToString(",") { value -> field(value) })
+            out.appendLine("date,grade,unit,quantity,quantity_estimated,unit_price,confirmed_total,currency,station_id,station,latitude,longitude,odometer_km,level_before_pct,level_after_pct,range_before_km,range_after_km,full,source,mimit_estimate,notes")
+            entries(vin).forEach { row ->
+                val values = listOf(Instant.ofEpochMilli(row.at), row.grade, row.grade.unit, row.amount, row.quantityEstimated,
+                    row.unitPrice, row.total.takeIf { row.confirmed }, row.currency, row.stationId, row.stationName, row.lat, row.lon,
+                    row.odometer, row.before, row.after, row.rangeBefore, row.rangeAfter, row.full, row.source, row.estimatedPrice, row.notes)
+                out.appendLine(values.joinToString(",") { field(it) })
             }
         }
         return file
@@ -265,7 +270,7 @@ internal suspend fun LionFlowApp.observeRefuel(vehicle: Vehicle, status: Vehicle
         ?: settings.raw("fuel.grade.${vehicle.vin}").let { name -> FuelGrade.entries.find { it.name == name } }
         ?: return
     val capacity = settings.raw("fuel.capacity.${grade.name}.${vehicle.vin}").replace(',', '.').toDoubleOrNull()
-        ?.takeIf { it.isFinite() && it in 3.0..250.0 } ?: defaultTankCapacity(vehicle, grade)
+        ?.takeIf { it.isFinite() && it in 1.0..300.0 } ?: defaultTankCapacity(vehicle, grade)
     val latitude = status.lat
     val longitude = status.lon
     val hasPosition = status.positionAtMillis?.let { abs(it - time) <= 15 * 60_000L } == true &&

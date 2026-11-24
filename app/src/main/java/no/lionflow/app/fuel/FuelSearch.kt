@@ -82,6 +82,19 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
     val candidates get() = checked.values.mapNotNull { (it.check as? FuelCheck.Verified)?.candidate }
     val hasMore get() = projections.any { checked[it.key]?.check.let { check -> check == null || check is FuelCheck.Deferred } }
 
+    fun restoreStops(stops: List<SavedFuelStop>): List<Pair<FuelProjection, FuelStopEdit>> {
+        val used = mutableSetOf<String>()
+        return stops.mapNotNull { stop ->
+            val matching = projections.filter { it.station.id == stop.stationId && it.key !in used }
+            val sorted = matching.sortedBy { abs(it.roadKm - stop.positionKm) }
+            val best = sorted.firstOrNull() ?: return@mapNotNull null
+            if (sorted.size > 1 && (abs(best.roadKm - stop.positionKm) > 8 ||
+                    abs(sorted[1].roadKm - stop.positionKm) - abs(best.roadKm - stop.positionKm) < 0.5)) return@mapNotNull null
+            used += best.key
+            best to FuelStopEdit(stop.fixedAmount)
+        }
+    }
+
     fun referencePrice(now: Instant): Double? =
         FuelQuoteStats.of(corridorOffers.mapNotNull { offer -> offer.price?.takeIf { offer.fresh(now) } })?.median
 

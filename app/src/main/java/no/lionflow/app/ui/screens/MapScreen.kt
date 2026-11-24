@@ -71,6 +71,7 @@ import no.lionflow.app.fuel.FuelGrade
 import no.lionflow.app.fuel.FuelProfile
 import no.lionflow.app.fuel.FuelServiceFilter
 import no.lionflow.app.fuel.FuelStation
+import no.lionflow.app.fuel.SavedFuelTrip
 import no.lionflow.app.ui.l10n.L10n
 import java.time.Instant
 import androidx.compose.ui.semantics.Role
@@ -143,9 +144,11 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     LaunchedEffect(fuelForm, suggestedProfile) { fuelForm.suggestProfile(suggestedProfile) }
     var fuelLayer by remember(vin, supportsFuel) { mutableStateOf(supportsFuel) }
     val favorites by fp.favorites.stations.collectAsStateWithLifecycle()
+    var fuelTripsOpen by remember(vin) { mutableStateOf(false) }
     var fuelLogOpen by remember(vin) { mutableStateOf(false) }
     var nearby by remember(vin) { mutableStateOf(false) }
     var nearbyCenter by remember(vin) { mutableStateOf<Place?>(null) }
+    var nearbyQuote by remember(vin) { mutableStateOf<Pair<FuelGrade, FuelServiceFilter>?>(null) }
     var selectedFuel by remember(vin) { mutableStateOf<FuelStation?>(null) }
     var fuelMap by remember { mutableStateOf<FuelMapData?>(null) }
     val catalog by fp.catalog.state.collectAsStateWithLifecycle()
@@ -174,7 +177,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         if (!fuelVisible) null else activeFuelResult?.plan?.stops?.firstOrNull { it.candidate.station.id == id }?.candidate?.station
             ?: fuelMap?.stations?.get(id).takeIf { showFuelCatalog }
     })
-    val showFuel by rememberUpdatedState<(FuelStation?) -> Unit>({ selectedFuel = it })
+    val showFuel by rememberUpdatedState<(FuelStation?) -> Unit>({ nearbyQuote = null; selectedFuel = it })
     var fallbackRequested by remember { mutableStateOf(false) }
     var styleLoaded by remember { mutableStateOf<Style?>(null) }
     var is3d by remember { mutableStateOf(false) }
@@ -333,6 +336,17 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         }
 
         AndroidView({ mapView }, Modifier.fillMaxSize())
+        if (fuelTripsOpen && supportsFuel && vin.isNotBlank()) {
+            BackHandler { fuelTripsOpen = false }
+            Box(Modifier.fillMaxSize().zIndex(2f).blockTouches()) {
+                SavedFuelTripsScreen(fp, vin, ui, vm::refresh, { vm.loadTrips(90) }, { fuelTripsOpen = false }) { trip, update ->
+                    fuelTripsOpen = false
+                    fuelForm.loadTrip(trip, update)
+                    fp.prepareSavedTrip()
+                    selectedFuel = null
+                }
+            }
+        }
         if (fuelLogOpen && supportsFuel && vin.isNotBlank()) {
             BackHandler { fuelLogOpen = false }
             Box(Modifier.fillMaxSize().zIndex(2f).blockTouches()) {
@@ -346,8 +360,9 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 if (result != null && result.road.totalKm > 0) result.roadFuel * 100 / result.road.totalKm / prediction.safetyFactor else null
             } ?: 7.0
             Box(Modifier.fillMaxSize().zIndex(2f).blockTouches()) {
-                FuelNearbyScreen(fp, p, ui, nearbyCenter, rate, priceClock, { nearby = false }) { station ->
+                FuelNearbyScreen(fp, p, ui, nearbyCenter, rate, priceClock, { nearby = false }) { station, grade, service ->
                     nearby = false
+                    nearbyQuote = grade to service
                     selectedFuel = station
                     showOnMap(station.lat, station.lon)
                 }
@@ -373,7 +388,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PrimaryButton("Plan a fuel trip", Modifier.weight(1f), icon = LfIcons.Route) {
                             fp.open = true
-                            fp.editing = fp.result?.plan == null
+                            fp.editing = fp.result?.plan == null || fuelForm.original != null
                             fuelLayer = true
                             selectedFuel = null
                             if (ui.trips.isEmpty() && !ui.tripsLoading) vm.loadTrips()
@@ -476,6 +491,9 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                         LfIcon(LfIcons.Refresh, if (catalog.refreshing) c.muted else c.accentInk, 20.dp, L10n.tr("Refresh fuel stations"))
                     }
                 }
+                if (vin.isNotBlank()) {
+                    SecondaryButton("Saved fuel trips", Modifier.fillMaxWidth()) { fuelTripsOpen = true }
+                }
                 Text("Map © OpenStreetMap contributors · OpenFreeMap", style = Type.tiny.copy(fontSize = 10.sp), color = c.muted,
                     modifier = Modifier.clip(RoundedCornerShape(5.dp)).background(c.card)
                         .clickable { platform.openUrl("https://www.openstreetmap.org/copyright") }.padding(horizontal = 5.dp, vertical = 2.dp))
@@ -492,7 +510,8 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             val sel = selected
             val station = selectedFuel?.takeIf { fuelVisible }
             if (station != null) {
-                FuelStationDetails(station, station.offer(fp.grade, fp.service, priceClock), priceClock,
+                val offer = station.offer(nearbyQuote?.first ?: fp.grade, nearbyQuote?.second ?: fp.service, priceClock)
+                FuelStationDetails(station, offer, priceClock,
                     station.id in favorites, { fp.favorites.toggle(station) }) { selectedFuel = null }
             } else if (sel != null) {
                 Row(verticalAlignment = Alignment.Top) {
@@ -594,6 +613,20 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                         FuelProgress(fp)
                         if (fp.busy == null && fp.result?.search?.canExtend == true) SecondaryButton("Check more stations") { fp.searchMore() }
                         SecondaryButton("Edit trip") { fp.editing = true }
+                    }
+                    if (!fp.editing && activeFuelResult != null && vin.isNotBlank()) {
+                        val original = fuelForm.original
+                        original?.let { SavedTripComparison(it, activeFuelResult) }
+                        var saved by remember(activeFuelResult, fp.locked) { mutableStateOf(false) }
+                        PrimaryButton(if (original == null) "Save fuel trip" else "Update saved trip", Modifier.fillMaxWidth(),
+                            enabled = fp.busy == null && !saved) {
+                            val id = original?.id ?: java.util.UUID.randomUUID().toString()
+                            SavedFuelTrip.capture(activeFuelResult, fp.locked, id)?.let {
+                                fp.savedTrips.save(vin, it)
+                                saved = true
+                            }
+                        }
+                        if (saved) Text("Fuel trip saved", style = Type.small, color = c.muted)
                     }
                     if (fp.editing || activeFuelResult == null) FuelSyncStatus(catalog) { fp.refresh(force = true) }
                 }

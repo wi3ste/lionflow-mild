@@ -105,6 +105,7 @@ internal class FuelFormState(
     var safety by mutableStateOf(planner.setting(vin, "safety") ?: DEFAULT_MARGIN)
     var detour by mutableStateOf(planner.setting(vin, "detour") ?: DEFAULT_DETOUR)
     var strategy by mutableStateOf(FuelStrategy.BALANCED)
+    var original by mutableStateOf<no.lionflow.app.fuel.SavedFuelTrip?>(null)
     private fun gradeKey(name: String) = "$name.${planner.grade.name}"
     var capacity by mutableStateOf<String?>(null)
         private set
@@ -130,6 +131,27 @@ internal class FuelFormState(
     fun updateManual(value: String) { manual = value }
     fun useProfile(value: FuelProfile) { profileExplicit = true; profile = value }
     fun suggestProfile(value: FuelProfile) { if (!profileExplicit) profile = value }
+
+    fun loadTrip(trip: no.lionflow.app.fuel.SavedFuelTrip, updateStartingFuel: Boolean) {
+        val request = trip.request
+        useGrade(request.grade)
+        planner.service = request.service
+        from = request.from
+        to = request.to
+        vias = request.via
+        round = request.round
+        depart = request.departure.toEpochMilli()
+        percent = false
+        initial = request.constraints.initial.toString().takeUnless { updateStartingFuel }
+        capacity = request.constraints.capacity.toString()
+        reserve = (request.constraints.reserve * 100 / request.constraints.capacity).toString()
+        useProfile(request.profile)
+        manual = request.manualConsumption?.toString().orEmpty()
+        safety = request.safety.toString()
+        detour = request.maxDetour.toString()
+        strategy = request.constraints.strategy
+        original = trip
+    }
 
     fun save() = planner.save(vin, mapOf(
         "grade" to planner.grade.name, "profile" to profile.name, "reserve" to reserve,
@@ -168,6 +190,10 @@ internal fun FuelTripForm(p: FuelPlanner, addresses: Planner, f: FuelFormState, 
 
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Text("Required fields marked with *", style = Type.small, color = c.muted)
+        f.original?.let {
+            androidx.compose.material3.Text(it.title, style = Type.label, color = c.text)
+            TextButton(onClick = { f.original = null }) { Text("Use these settings for a new trip", color = c.accentInk) }
+        }
         for (i in listOf(0) + f.vias.indices.map { it + 2 } + 1) {
             val place = when (i) { 0 -> f.from ?: here; 1 -> f.to; else -> f.vias[i - 2] }
             AddressRow(
@@ -305,11 +331,11 @@ internal fun FuelTripForm(p: FuelPlanner, addresses: Planner, f: FuelFormState, 
             }
             submitted = false
             focus.clearFocus()
-            f.save()
+            if (f.original == null) f.save()
             val startingAmount = if (f.percent) tank * (level / 100) else level
             p.calculate(FuelTripRequest(from, to, f.vias.filterNotNull(), f.round,
                 f.depart?.let(Instant::ofEpochMilli)?.takeIf { it > Instant.now() } ?: Instant.now(), grade, p.service,
-                f.profile, manual, safety, FuelConstraints(tank, startingAmount, tank * reserve / 100, f.strategy), detour))
+                f.profile, manual, safety, FuelConstraints(tank, startingAmount, tank * reserve / 100, f.strategy), detour), f.original)
         }
         FuelProgress(p)
     }
@@ -631,6 +657,8 @@ private fun FuelTripDetails(
         FuelMetric("Expected average consumption", "${fuelNumber(expected * 100 / plan.totalKm, 1)} $unit/100 km")
         FuelMetric("Fuel consumed", quantity(expected))
         FuelMetric("Estimated value of fuel consumed", fuelMoney(result.expectedCost(plan)))
+        Text(if (result.tankUnitPrice != null) "Starting fuel valued from your refuel log" else "Starting fuel uses the reference price",
+            style = Type.tiny, color = c.muted)
         FuelMetric("Fuel to buy", quantity(plan.purchased))
         FuelMetric("Fuel at arrival", quantity(plan.remaining))
         if (plan.stops.isNotEmpty()) {

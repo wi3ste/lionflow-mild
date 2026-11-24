@@ -43,7 +43,7 @@ internal fun FuelNearbyScreen(
     consumption: Double,
     now: Instant,
     close: () -> Unit,
-    showOnMap: (FuelStation) -> Unit,
+    showOnMap: (FuelStation, FuelGrade, FuelServiceFilter) -> Unit,
 ) {
     val c = LocalLf.current
     val platform = LocalPlatform.current
@@ -118,6 +118,8 @@ internal fun FuelNearbyScreen(
                         filters = filters.copy(grade = it, brand = null)
                     }
                     FuelChoice(FuelServiceFilter.entries, filters.service, FuelServiceFilter::label) { filters = filters.copy(service = it, brand = null) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { advanced = !advanced }) { Text("More filters", color = c.accentInk) }
                     TextButton(onClick = { saved = !saved }) { Text(if (saved) "Nearby stations" else "Favorites", color = c.accentInk) }
                 }
@@ -163,7 +165,7 @@ internal fun FuelNearbyScreen(
                         if (station == null) Text("Unavailable in the current catalog", color = c.muted, style = Type.small)
                         else androidx.compose.material3.Text(fuelPrice(station.offer(filters.grade, filters.service, now), now), color = c.text, style = Type.small)
                         Row {
-                            if (station != null) TextButton(onClick = { showOnMap(station) }) { Text("Show on map", color = c.accentInk) }
+                            if (station != null) TextButton(onClick = { showOnMap(station, filters.grade, filters.service) }) { Text("Show on map", color = c.accentInk) }
                             TextButton(onClick = { planner.favorites.remove(favorite.id) }) { Text("Remove favorite", color = c.accentInk) }
                         }
                     }
@@ -184,7 +186,7 @@ internal fun FuelNearbyScreen(
                         row.fillCost?.let { Text("Estimated fill €${formatFuelNumber(it, 2)}", style = Type.small, color = c.text) }
                         row.saving?.let { Text("Estimated saving €${formatFuelNumber(it, 2)}", style = Type.small, color = c.text) }
                         Row(Modifier.horizontalScroll(rememberScrollState())) {
-                            TextButton(onClick = { showOnMap(station) }) { Text("Show on map", color = c.accentInk) }
+                            TextButton(onClick = { showOnMap(station, filters.grade, filters.service) }) { Text("Show on map", color = c.accentInk) }
                             TextButton(onClick = { platform.openUrl(station.navigationUrl()) }) { Text("Navigate", color = c.accentInk) }
                             TextButton(onClick = { planner.favorites.toggle(station) }) {
                                 Text(if (station.id in favorites) "Remove favorite" else "Add favorite", color = c.accentInk)

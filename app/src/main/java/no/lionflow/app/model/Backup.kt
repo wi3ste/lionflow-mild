@@ -18,12 +18,23 @@ object Backup {
     private const val MARK = "lionflow-backup.txt"
     private val skipPrefs = setOf("lf_secure.xml", "demo.xml", "charge_log_demo.xml")
 
+    private fun allowed(path: String): Boolean {
+        val root = path.substringBefore('/')
+        val relative = path.substringAfter('/', "")
+        if (relative.isEmpty() || relative.split('/').any { it.isEmpty() || it == "." || it == ".." }) return false
+        return when (root) {
+            "shared_prefs" -> '/' !in relative && relative.endsWith(".xml") && relative !in skipPrefs && !relative.startsWith("androidx.")
+            "files" -> true
+            else -> false
+        }
+    }
+
     fun export(ctx: Context): File {
         val data = ctx.applicationInfo.dataDir.let(::File)
         val out = File(File(ctx.cacheDir, "exports").apply { mkdirs() }, "lionflow-backup.zip")
         ZipOutputStream(out.outputStream().buffered()).use { z ->
             z.putNextEntry(ZipEntry(MARK)); z.write("LionFlow backup ${System.currentTimeMillis()}".toByteArray()); z.closeEntry()
-            File(data, "shared_prefs").listFiles()?.filter { it.isFile && it.name !in skipPrefs && !it.name.startsWith("androidx.") }?.forEach { f ->
+            File(data, "shared_prefs").listFiles()?.filter { it.isFile && allowed("shared_prefs/" + it.name) }?.forEach { f ->
                 z.putNextEntry(ZipEntry("shared_prefs/${f.name}")); f.inputStream().use { it.copyTo(z) }; z.closeEntry()
             }
             ctx.filesDir.walkTopDown().filter { it.isFile }.forEach { f ->
@@ -43,10 +54,9 @@ object Backup {
                 while (true) {
                     val e = z.nextEntry ?: break
                     if (e.name == MARK) { ok = true; continue }
-                    if (e.isDirectory || !(e.name.startsWith("shared_prefs/") || e.name.startsWith("files/"))) continue
-                    if (e.name.startsWith("shared_prefs/") && e.name.substringAfter("/") in skipPrefs) continue
+                    if (e.isDirectory || !allowed(e.name)) continue
                     val f = File(tmp, e.name).canonicalFile
-                    if (!f.path.startsWith(tmp.canonicalPath + File.separator)) continue   // no paths outside the app
+                    if (!f.path.startsWith(tmp.canonicalPath + File.separator)) continue
                     f.parentFile?.mkdirs(); f.outputStream().use { z.copyTo(it) }
                 }
             }

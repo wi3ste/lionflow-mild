@@ -584,9 +584,9 @@ Thunder	Orage	Gewitter	Tormenta	Torden
 Charging costs	Coûts de recharge	Ladekosten	Costes de carga	Ladekostnader
 This week	Cette semaine	Diese Woche	Esta semana	Denne uken
 Last week	Semaine dernière	Letzte Woche	Semana pasada	Forrige uke
-This month	Ce mois-ci	Dieser Monat	Este mes	Denne måneden
+This month	Ce mois-ci	Dieser Monat	Este mes	Denne måneden	Questo mese
 Last month	Mois dernier	Letzter Monat	Mes pasado	Forrige måned
-This year	Cette année	Dieses Jahr	Este año	I år
+This year	Cette année	Dieses Jahr	Este año	I år	Quest’anno
 Last year	L'an dernier	Letztes Jahr	Año pasado	I fjor
 {0} · {1} without price	{0} · {1} sans prix	{0} · {1} ohne Preis	{0} · {1} sin precio	{0} · {1} uten pris
 at your current driving	selon votre conduite actuelle	bei Ihrer aktuellen Fahrweise	según tu conducción actual	med kjøringen din nå
@@ -849,7 +849,7 @@ A trip with about the same distance and average speed as one you tagged gets the
 A trip with about the same distance and average speed as one you tagged gets the same tag	Un trajet de distance et de vitesse moyenne proches d'un trajet étiqueté reçoit la même étiquette	Eine Fahrt mit etwa gleicher Strecke und Durchschnittsgeschwindigkeit wie eine markierte bekommt denselben Tag	Un viaje con distancia y velocidad media parecidas a uno etiquetado recibe la misma etiqueta	En tur med omtrent samme lengde og snittfart som en du har merket, får samme merkelapp
 Tip: tag your trips (work, holiday, a client…) to see statistics per tag.	Astuce : étiquetez vos trajets (travail, vacances, un client…) pour voir des statistiques par étiquette.	Tipp: Markieren Sie Ihre Fahrten (Arbeit, Urlaub, ein Kunde…), um Statistiken pro Tag zu sehen.	Consejo: etiqueta tus viajes (trabajo, vacaciones, un cliente…) para ver estadísticas por etiqueta.	Tips: merk turene dine (jobb, ferie, en kunde…) for å se statistikk per merkelapp.
 Trip statistics	Statistiques des trajets	Fahrtenstatistik	Estadísticas de viajes	Turstatistikk
-Loading trips…	Chargement des trajets…	Fahrten werden geladen…	Cargando viajes…	Laster turer…
+Loading trips…	Chargement des trajets…	Fahrten werden geladen…	Cargando viajes…	Laster turer…	Caricamento viaggi…
 Time	Durée	Zeit	Tiempo	Tid
 No tag	Sans étiquette	Ohne Tag	Sin etiqueta	Uten merkelapp
 1 trip	1 trajet	1 Fahrt	1 viaje	1 tur
@@ -1184,3 +1184,129 @@ Show stop details	Afficher les détails de l’arrêt	Stoppdetails anzeigen	Most
 Hide stop details	Masquer les détails de l’arrêt	Stoppdetails ausblenden	Ocultar detalles de la parada	Skjul stoppdetaljer	Nascondi dettagli della sosta
 Show station on map	Afficher la station sur la carte	Tankstelle auf der Karte anzeigen	Mostrar gasolinera en el mapa	Vis bensinstasjonen på kartet	Mostra distributore sulla mappa
 Buy {0}	Acheter {0}	{0} tanken	Repostar {0}	Fyll {0}	Acquista {0}
+Find fuel nearby					Trova distributori vicini
+Map center					Centro della mappa
+More filters					Altri filtri
+Favorites					Preferiti
+Nearby stations					Distributori vicini
+Quantity to compare					Quantità da confrontare
+All brands					Tutti i marchi
+Maximum unit price					Prezzo unitario massimo
+Consumption / 100 km					Consumo / 100 km
+Recent prices only					Solo prezzi recenti
+Favorites only					Solo preferiti
+Savings use the median fresh price in this area and subtract the estimated round-trip fuel cost.					Il risparmio usa il prezzo mediano recente della zona e sottrae il costo stimato del carburante per andata e ritorno.
+No favorite stations					Nessun distributore preferito
+Unavailable in the current catalog					Assente dal catalogo attuale
+Show on map					Mostra sulla mappa
+Remove favorite					Rimuovi dai preferiti
+Add favorite					Aggiungi ai preferiti
+No stations match these filters					Nessun distributore corrisponde ai filtri
+{0} km straight-line					{0} km in linea d’aria
+{0} km by road, round trip					{0} km su strada, andata e ritorno
+Estimated fill €{0}					Rifornimento stimato €{0}
+Estimated saving €{0}					Risparmio stimato €{0}
+Checking road distance…					Verifica della distanza stradale…
+Check road distance					Verifica distanza stradale
+Road distance unavailable					Distanza stradale non disponibile
+Position unavailable					Posizione non disponibile
+All roads					Tutte le strade
+Local roads					Rete stradale
+Motorway					Autostrada
+Best value					Convenienza
+Fuel log					Storico rifornimenti
+Add refuel					Aggiungi rifornimento
+All time					Tutto lo storico
+Hide fuel statistics					Nascondi statistiche carburante
+Fuel statistics					Statistiche carburante
+Export CSV					Esporta CSV
+Could not export refuels					Esportazione dei rifornimenti non riuscita
+Confirmed purchases					Spesa confermata
+Quantity purchased					Quantità acquistata
+Weighted average price					Prezzo medio ponderato
+Previous period purchases					Spesa del periodo precedente
+Distance in available trips					Distanza nei viaggi disponibili
+Recorded consumption					Consumo registrato
+Estimated cost of fuel consumed					Valore stimato del carburante consumato
+Estimated fuel cost per km					Costo stimato del carburante per km
+Estimated fuel cost per 100 km					Costo stimato del carburante per 100 km
+Entries with estimates					Voci con valori stimati
+Refuels by station					Rifornimenti per distributore
+Unknown station					Distributore sconosciuto
+Load more trip history					Carica altri viaggi
+No refuels for this period					Nessun rifornimento per questo periodo
+MIMIT estimated price					Prezzo stimato da MIMIT
+Manual entry					Inserimento manuale
+Estimated refuel · review					Rifornimento stimato · da verificare
+Confirmed detection					Rilevazione confermata
+Review refuel					Verifica rifornimento
+Delete this refuel?					Eliminare il rifornimento?
+Refuel					Rifornimento
+Date and time (YYYY-MM-DD HH:mm)					Data e ora (AAAA-MM-GG HH:mm)
+Quantity is estimated					Quantità stimata
+Amount paid					Importo pagato
+Price per unit paid					Prezzo unitario pagato
+Station					Distributore
+Fill type unknown					Tipo di rifornimento sconosciuto
+Full tank					Pieno completo
+Partial fill					Rifornimento parziale
+Refuel details					Dettagli rifornimento
+Odometer (km)					Chilometraggio (km)
+Currency (ISO code)					Valuta (codice ISO)
+Fuel level before (%)					Livello prima (%)
+Fuel level after (%)					Livello dopo (%)
+Range before (km)					Autonomia prima (km)
+Range after (km)					Autonomia dopo (km)
+Confirm refuel					Conferma rifornimento
+Starting fuel valued from your refuel log					Valore iniziale ricavato dallo storico rifornimenti
+Starting fuel uses the reference price					Valore iniziale stimato al prezzo di riferimento
+Saved fuel trips					Viaggi carburante salvati
+Save fuel trip					Salva viaggio carburante
+Update saved trip					Aggiorna viaggio salvato
+Fuel trip saved					Viaggio carburante salvato
+Hide active trip					Nascondi viaggio attivo
+Show active trip					Mostra viaggio attivo
+No saved fuel trips					Nessun viaggio carburante salvato
+Planned fuel purchases					Spesa alla pompa prevista
+Hide original plan					Nascondi piano originale
+View original plan					Mostra piano originale
+Waypoints					Tappe
+Total planned duration					Durata totale prevista
+Expected consumption					Consumo previsto
+Price used					Prezzo usato
+Confirmed stop					Sosta confermata
+Update prices and starting fuel					Aggiorna prezzi e carburante iniziale
+Duplicate					Duplica
+Start trip					Avvia viaggio
+Delete saved trip?					Eliminare il viaggio salvato?
+Finish active trip?					Terminare il viaggio attivo?
+Active fuel trip					Viaggio carburante attivo
+Completed fuel trip					Viaggio carburante concluso
+Vehicle update					Aggiornamento del veicolo
+Distance from odometer					Distanza da contachilometri
+Estimated distance remaining					Distanza residua stimata
+Estimated time remaining					Tempo residuo stimato
+Estimated fuel used at this distance					Carburante consumato stimato a questa distanza
+Reported fuel level					Livello carburante rilevato
+Reported fuel range					Autonomia rilevata
+Vehicle fuel data is out of date or unavailable					Dati carburante del veicolo obsoleti o assenti
+Next fuel stop					Prossima sosta carburante
+Recommended fill					Quantità consigliata
+Mark stop visited					Segna sosta come effettuata
+Check the remaining fuel and the next stop					Controlla carburante residuo e prossima sosta
+Review planned stops					Rivedi le soste previste
+Refresh vehicle					Aggiorna veicolo
+Finish trip					Termina viaggio
+Select the recorded legs that belong to this trip					Seleziona i tragitti registrati che fanno parte del viaggio
+No recorded legs in the trip window					Nessun tragitto registrato nel periodo del viaggio
+Planned / actual distance					Distanza prevista / effettiva
+Planned / recorded drive time					Durata alla guida prevista / registrata
+Expected / recorded fuel used					Carburante consumato previsto / registrato
+Expected / recorded consumption					Consumo previsto / registrato
+Planned stops / confirmed refuels in trip window					Soste previste / rifornimenti confermati nel periodo
+Planned purchases / confirmed spend					Spesa prevista / confermata
+Refresh recorded trips					Aggiorna viaggi registrati
+Original / updated plan					Piano originale / aggiornato
+Use these settings for a new trip					Usa questi parametri per un nuovo viaggio
+Some confirmed stops could not be found on the updated route. The saved trip is still available.					Alcune soste confermate non sono disponibili sul percorso aggiornato. Il viaggio salvato resta consultabile.
+Create a new trip to change fuel type when the saved trip has confirmed stops.					Crea un nuovo viaggio per cambiare carburante se il viaggio salvato contiene soste confermate.

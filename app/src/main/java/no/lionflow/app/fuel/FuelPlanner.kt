@@ -53,10 +53,11 @@ internal data class FuelTripResult(
     val prediction: FuelConsumption,
     val search: FuelSearchSummary,
     val comparisons: Map<FuelStrategy, FuelPlan> = emptyMap(),
+    val tankUnitPrice: Double? = null,
 ) {
     fun expectedUsed(plan: FuelPlan) = plan.used / prediction.safetyFactor
     fun expectedCost(plan: FuelPlan) =
-        FuelOptimizer.consumedCost(expectedUsed(plan), request.constraints.initial, reference, plan.stops)
+        FuelOptimizer.consumedCost(expectedUsed(plan), request.constraints.initial, tankUnitPrice ?: reference, plan.stops)
 
     fun expectedDetourFuel(stop: FuelStop) = stop.candidate.detourFuel / prediction.safetyFactor
     fun expectedDetourFuel(plan: FuelPlan) = plan.detourFuel / prediction.safetyFactor
@@ -113,6 +114,7 @@ internal class FuelPlanner(
 ) {
     val catalog = FuelCatalog.get(app)
     val favorites = app.fuelFavorites
+    val savedTrips = app.savedFuelTrips
     val log = app.fuelLog
     var open by mutableStateOf(false)
     var editing by mutableStateOf(true)
@@ -133,7 +135,7 @@ internal class FuelPlanner(
     private val routingCache = FuelRoutingCache(File(app.noBackupFilesDir, "fuel-routing"))
     private val verifier = FuelRoadVerifier(disk = routingCache)
     private data class SearchContext(
-        val search: FuelStationSearch, val fuel: DoubleArray, val windows: FuelAccessWindows,
+        val search: FuelStationSearch, val fuel: DoubleArray, val windows: FuelAccessWindows, val catalogAt: Instant?,
     )
     private var context: SearchContext? = null
     private var lastSearch: SearchKey? = null
@@ -230,6 +232,19 @@ internal class FuelPlanner(
         editing = true
     }
 
+    fun prepareSavedTrip() {
+        cancel()
+        result = null
+        error = null
+        backtest = null
+        locked = emptyMap()
+        excluded = emptySet()
+        context = null
+        lastSearch = null
+        open = true
+        editing = true
+    }
+
     fun searchMore() {
         if (busy != null) return
         val previous = result ?: return
@@ -311,13 +326,13 @@ internal class FuelPlanner(
         }
     }
 
-    fun calculate(request: FuelTripRequest) {
+    fun calculate(request: FuelTripRequest, original: SavedFuelTrip? = null) {
         work?.cancel()
         val end = if (request.round) request.from else request.to
         val via = if (request.round) request.via + request.to else request.via
         val routeKey = FuelRoutingCache.routeKey(listOf(request.from) + via + end)
         val key = SearchKey(routeKey, request.grade, request.service, request.maxDetour)
-        val reuse = key == lastSearch
+        val reuse = key == lastSearch && original == null
         if (!reuse) {
             locked = emptyMap()
             excluded = emptySet()
@@ -327,7 +342,14 @@ internal class FuelPlanner(
         extensionMessage = null
         val constraintsLocked = locked
         val exclusions = excluded
-        val previous = result?.takeIf { reuse }
+        val priorPlan = result?.takeIf { reuse }?.let { SavedFuelTrip.capture(it, constraintsLocked, "") }
+        val savedLocks = original?.stops.orEmpty().filter { it.locked }
+        if (savedLocks.isNotEmpty() && original?.request?.grade != request.grade) {
+            error = "Create a new trip to change fuel type when the saved trip has confirmed stops."
+            busy = null
+            return
+        }
+        val vin = vehicleKey
         result = null
         backtest = null
         error = null
@@ -349,8 +371,10 @@ internal class FuelPlanner(
                         withContext(Dispatchers.IO) { routingCache.saveRoute(routeKey, it, now) }
                     }
                 }
-                val cachedSearch = context?.search?.takeIf { reuse && cachedRoad != null }
-                val cacheOnly = cachedSearch != null
+                val savedContext = context?.takeIf { reuse && cachedRoad != null &&
+                    it.catalogAt == catalog.state.value.snapshot?.syncedAt }
+                val cachedSearch = savedContext?.search
+                // A previously direct trip has no corridor to reuse if its starting fuel changes.
                 val prediction = timed("consumption") {
                     if (request.manualConsumption == null && history().loading && history().trips.none { it.calibrationLPer100 != null }) {
                         busy = "Waiting briefly for driving history…"
@@ -368,15 +392,19 @@ internal class FuelPlanner(
                 val fuel = withContext(Dispatchers.Default) { prediction.forRoute(road) }
                 if (fuel.isEmpty()) error("Empty fuel route")
                 val required = fuel.last()
-                val direct = request.constraints.initial - required >= request.constraints.reserve && constraintsLocked.isEmpty()
+                val direct = request.constraints.initial - required >= request.constraints.reserve &&
+                    constraintsLocked.isEmpty() && savedLocks.isEmpty()
+                val cacheOnly = cachedSearch != null && (direct || cachedSearch.corridorSize > 0)
+                val confirmedStops = savedLocks + if (cacheOnly) emptyList() else priorPlan?.stops.orEmpty().filter { it.locked }
                 busy = "Checking fuel stations…"
                 val snapshot = timed("catalog") {
-                    catalog.state.value.snapshot ?: if (direct || cacheOnly) null else catalog.refresh().snapshot
+                    if (original != null) catalog.refresh().snapshot
+                    else catalog.state.value.snapshot ?: if (direct || cacheOnly) null else catalog.refresh().snapshot
                 }
                 val stations = snapshot?.index
                 val search = timed("corridor") {
                     withContext(Dispatchers.Default) {
-                        cachedSearch?.rebased(road, fuel, prediction, request.maxDetour) ?: FuelStationSearch(
+                        cachedSearch?.takeIf { cacheOnly }?.rebased(road, fuel, prediction, request.maxDetour) ?: FuelStationSearch(
                             if (stations == null || direct) emptyList() else FuelCorridor.find(
                                 road, fuel, stations, request.grade, request.service, corridorWidth(request.maxDetour), now,
                             ),
@@ -385,19 +413,32 @@ internal class FuelPlanner(
                     }
                 }
                 val reference = timed("prices") {
-                    previous?.reference?.takeIf { cacheOnly } ?: search.referencePrice(now) ?: withContext(Dispatchers.Default) {
+                    search.referencePrice(now) ?: withContext(Dispatchers.Default) {
                         val national = stations?.stations.orEmpty().mapNotNull {
                             it.offer(request.grade, request.service, now)?.takeIf { offer -> offer.fresh(now) }?.price
                         }
                         FuelQuoteStats.of(national)?.median
                     }
                 }
+                val tankPrice = vin?.takeIf(String::isNotBlank)?.let {
+                    withContext(Dispatchers.IO) { tankUnitCost(log.entries(it), request.grade, request.constraints.capacity, now.toEpochMilli()) }
+                }
                 val windows = FuelAccessWindows(road, fuel, protectedFuelKm(road, via), request.maxDetour)
-                context = SearchContext(search, fuel, windows)
+                context = SearchContext(search, fuel, windows, snapshot?.syncedAt)
                 lastSearch = key
+                val restored = withContext(Dispatchers.Default) { search.restoreStops(confirmedStops) }
+                if (restored.size != confirmedStops.size) {
+                    error = "Some confirmed stops could not be found on the updated route. The saved trip is still available."
+                    busy = null
+                    return@launch
+                }
+                val currentLocks = if (cacheOnly) constraintsLocked
+                else restored.associate { (projection, edit) -> projection.key to edit }
+                locked = currentLocks
                 val shortlist = timed("shortlist") {
                     if (direct || cacheOnly) emptyList() else withContext(Dispatchers.Default) {
-                        search.automatic(request.constraints, required, now)
+                        (restored.map { FuelSearchChoice(it.first, null) } + search.automatic(request.constraints, required, now))
+                            .distinctBy { it.projection.key }
                     }
                 }
                 val budget = FuelProbeBudget(16)
@@ -413,7 +454,7 @@ internal class FuelPlanner(
                     val verified = search.candidates
                     val existing = result
                     val revised = timed("solve") {
-                        optimize(road, required, request, verified, now, reference, constraintsLocked, exclusions)
+                        optimize(road, required, request, verified, now, reference, currentLocks, exclusions)
                     }
                     val comparisons = betterFuelPlans(existing?.comparisons.orEmpty(), revised)
                     val selected = result?.request?.constraints?.strategy ?: request.constraints.strategy
@@ -425,7 +466,7 @@ internal class FuelPlanner(
                         val canExtend = !direct && (summary.canExtend || (cacheOnly && plan == null && summary.corridor == 0))
                         result = FuelTripResult(active, road, required, verified, reference, now,
                             !direct && (canExtend || summary.verified < summary.corridor), plan, prediction,
-                            summary.copy(canExtend = canExtend, routeRequests = routeRequests, routeCacheHits = if (cachedRoad != null) 1 else 0), comparisons)
+                            summary.copy(canExtend = canExtend, routeRequests = routeRequests, routeCacheHits = if (cachedRoad != null) 1 else 0), comparisons, tankPrice)
                         if (plan != null && firstPlan == null) firstPlan = (System.nanoTime() - started) / 1_000_000
                     }
                     return comparisons.mapValues { it.value.score }
