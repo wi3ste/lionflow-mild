@@ -193,7 +193,7 @@ internal object FuelOptimizer {
         }
     }
 
-    private fun consumedCost(amount: Double, initial: Double, reference: Double?, stops: List<FuelStop>): Double? {
+    fun consumedCost(amount: Double, initial: Double, reference: Double?, stops: List<FuelStop>): Double? {
         var outstanding = amount
         var value = 0.0
         for ((units, price) in listOf(initial to reference) + stops.map { it.purchased to it.candidate.offer.price }) {

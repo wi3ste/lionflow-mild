@@ -97,7 +97,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         no.lionflow.app.plan.Planner(viewModelScope, lf, { _ui.value.status }, { _ui.value.trips },
             { _ui.value.myLat?.let { la -> _ui.value.myLon?.let { lo -> la to lo } } })
     }
-    internal val fuelPlanner by lazy { no.lionflow.app.fuel.FuelPlanner(viewModelScope, lf) }
+    internal val fuelPlanner by lazy {
+        no.lionflow.app.fuel.FuelPlanner(viewModelScope, lf) {
+            val current = _ui.value
+            no.lionflow.app.fuel.FuelHistoryInput(current.trips, current.routes, current.tripsLoading)
+        }
+    }
     private var ticker: Job? = null
     private val vehicleMetadataLock = Mutex()
     private val brandingAttempts = HashSet<Pair<String, String>>()
@@ -1091,7 +1096,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(tripsLoading = true) }
             try {
                 val res = api.allTrips(v, System.currentTimeMillis() - days * 86_400_000L)
-                val vehicle = _ui.value.vehicle?.takeIf { it.vin == v.vin } ?: v
+                val vehicle = _ui.value.vehicle?.takeIf { it.vin == v.vin } ?: return@launch
                 val all = api.parseTrips(vehicle, res.trips)
                 tripsNone = res.noneFound
                 if (tripsNone) remote.addLog("trips: the server says no trips were found")
@@ -1102,7 +1107,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val merged = withCarTrips((all + imported).distinctBy { it.id }).sortedByDescending { it.startMillis ?: 0L }
                 _ui.update { it.copy(trips = merged, tripsLoading = false) }
                 autoTagNow()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (_ui.value.vehicle?.vin != v.vin) return@launch
                 _ui.update { it.copy(tripsLoading = false, trips = withCarTrips(loadImportedTrips()).sortedByDescending { t -> t.startMillis ?: 0L }) }
                 toast("Couldn't load trips — ${no.lionflow.app.api.Http.describe(e)}")
             }
