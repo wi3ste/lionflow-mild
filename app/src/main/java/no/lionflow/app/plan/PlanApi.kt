@@ -12,6 +12,9 @@ import org.json.JSONObject
 import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 /** The free online services behind the trip planner. All are OpenStreetMap-based and need no key. */
 object PlanApi {
@@ -204,11 +207,57 @@ object PlanApi {
         }
     }
 
-    private suspend fun osrmRoutes(a: Place, b: Place, via: List<Place>): List<RouteData> {
+    internal suspend fun fuelRoute(a: Place, b: Place, via: List<Place>): RouteData =
+        osrmRoutes(a, b, via, alternatives = false).first()
+
+    internal data class FuelAccess(val outKm: Double, val backKm: Double, val outMin: Double, val backMin: Double, val shape: String)
+
+    internal class FuelRoutingRateLimited : Exception()
+    private val fuelRoutingClient by lazy { Http.client.newBuilder().callTimeout(5, TimeUnit.SECONDS).build() }
+
+    /** A directed loop from the route, through the station, back to the same carriageway. */
+    internal suspend fun fuelAccess(anchor: Place, station: Place, bearing: Int): FuelAccess? {
+        val position = "${num(anchor.lon)},${num(anchor.lat)}"
+        val waypoint = "${num(station.lon)},${num(station.lat)}"
+        val way = "$position;$waypoint;$position"
+        val query = "overview=full&geometries=polyline6&steps=false&continue_straight=false" +
+            "&bearings=$bearing,45;;$bearing,45&radiuses=35;100;35"
+        // Keep the same public routing services as the main route, with at most one fallback.
+        for (base in ROUTERS) {
+            try {
+                val request = Request.Builder().url("$base$way?$query").header("User-Agent", Http.CONTACT_AGENT).build()
+                val j = withContext(Dispatchers.IO) {
+                    fuelRoutingClient.newCall(request).execute().use { response ->
+                        if (response.code == 429) throw FuelRoutingRateLimited()
+                        if (!response.isSuccessful) null else response.body?.string()?.let(::JSONObject)
+                    }
+                } ?: continue
+                val route = j.optJSONArray("routes")?.optJSONObject(0) ?: continue
+                val legs = route.optJSONArray("legs") ?: continue
+                val out = legs.optJSONObject(0) ?: continue
+                val back = legs.optJSONObject(1) ?: continue
+                val outKm = out.optDouble("distance") / 1000
+                val backKm = back.optDouble("distance") / 1000
+                val outMin = out.optDouble("duration") / 60
+                val backMin = back.optDouble("duration") / 60
+                if (listOf(outKm, backKm, outMin, backMin).all { it.isFinite() && it >= 0 }) {
+                    return FuelAccess(outKm, backKm, outMin, backMin,
+                        route.optString("geometry"))
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: org.json.JSONException) {
+            } catch (_: java.io.IOException) {
+            }
+        }
+        return null
+    }
+
+    private suspend fun osrmRoutes(a: Place, b: Place, via: List<Place>, alternatives: Boolean = via.isEmpty()): List<RouteData> {
         val noRoute = "No road route found between these places"
         val way = (listOf(a) + via + listOf(b)).joinToString(";") { "${num(it.lon)},${num(it.lat)}" }
         // Servers differ in what they accept: ask for 2 alternatives, then 1, then none.
-        val variants = if (via.isEmpty()) listOf("&alternatives=2", "&alternatives=true", "") else listOf("")
+        val variants = if (alternatives) listOf("&alternatives=2", "&alternatives=true", "") else listOf("")
         var last: Exception? = null
         for (base in ROUTERS) {
             var done = false
