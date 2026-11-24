@@ -35,7 +35,7 @@ Le funzioni obiettivo di Economica, Bilanciata e Rapida erano già distinte. Due
 
 La fixture include undici impianti con quotazioni più basse e prive di accesso nel grafo simulato. Il test insiste per dodici pressioni per verificare il superamento del vecchio tetto, arrivando a 62 candidati e lasciandone più di 800 da verificare. In quei dodici gruppi conta 181 richieste simulate e 10 risposte da cache. Il tempo di un router pubblico, la disponibilità delle strade e i prezzi reali richiedono un collaudo distinto.
 
-I cinque nuovi test coprono anche il recupero dopo un timeout a piano già fattibile, il riuso della geometria, l'intervallo di attesa dopo un 429, la classificazione delle risposte OSRM e un distributore raggiungibile soltanto con rientro in avanti. Per il limite di 8 km il test accetta 7,50 km aggiunti e rifiuta 8,01 km.
+I sei nuovi test coprono anche il recupero dopo un timeout a piano già fattibile, il riuso della geometria, l'intervallo di attesa dopo un 429, la classificazione delle risposte OSRM, le quotazioni scadute e un distributore raggiungibile soltanto con rientro in avanti. Per il limite di 8 km il test accetta 7,50 km aggiunti e rifiuta 8,01 km.
 
 ## Verifica e installazione
 

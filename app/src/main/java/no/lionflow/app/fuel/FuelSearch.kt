@@ -70,8 +70,9 @@ internal data class FuelExtensionProgress(val planned: Int, val selectedRetries:
 
 internal class FuelStationSearch(initial: List<FuelProjection>, private val routeKm: Double) {
     private val projections = initial.distinctBy { it.key }.sortedBy { it.roadKm }
-    val corridorSize = projections.map { it.station.id }.distinct().size
-    val corridorPrices = FuelQuoteStats.of(projections.distinctBy { it.station.id }.mapNotNull { it.offer.price })
+    private val corridorOffers = projections.distinctBy { it.station.id }.map { it.offer }
+    val corridorSize = corridorOffers.size
+    private val corridorPrices = FuelQuoteStats.of(corridorOffers.mapNotNull { it.price })
     private val checked = linkedMapOf<String, FuelSearchRow>()
     private val queued = linkedMapOf<String, FuelSearchChoice>()
     private var requests = 0
@@ -80,6 +81,9 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
     val candidates get() = checked.values.mapNotNull { (it.check as? FuelCheck.Verified)?.candidate }
     val hasMore get() = projections.any { checked[it.key]?.check.let { check -> check == null || check is FuelCheck.Deferred } }
 
+    fun referencePrice(now: Instant): Double? =
+        FuelQuoteStats.of(corridorOffers.mapNotNull { offer -> offer.price?.takeIf { offer.fresh(now) } })?.median
+
     fun automatic(constraints: FuelConstraints, required: Double, now: Instant): List<FuelSearchChoice> {
         val range = constraints.capacity - constraints.reserve
         val budget = 6 + 3 * ceil(required / range).toInt().coerceIn(1, 4)
@@ -87,8 +91,9 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
         val reachable = projections.filter { it.roadFuel <= constraints.initial - constraints.reserve + 1e-7 || it.roadKm < 0.01 }
         val opening = FuelCorridor.shortlist(reachable, range, now, 2)
         val mixed = FuelCorridor.shortlist(projections, range, now, budget)
+        val reference = referencePrice(now) ?: corridorPrices?.median
         return (opening + mixed).distinctBy { it.key }.take(budget).map {
-            FuelSearchChoice(it, potential(it, constraints, required, null, now))
+            FuelSearchChoice(it, potential(it, constraints, required, null, reference, now))
         }
     }
 
@@ -96,7 +101,8 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
         val fresh = projections.filter { it.key !in checked }
         val retry = checked.values.filter { (it.check as? FuelCheck.Deferred)?.retryAt?.let { at -> at <= now } == true }
             .map { it.choice.projection }
-        fun choice(projection: FuelProjection) = FuelSearchChoice(projection, potential(projection, constraints, required, current, now))
+        val reference = referencePrice(now) ?: corridorPrices?.median
+        fun choice(projection: FuelProjection) = FuelSearchChoice(projection, potential(projection, constraints, required, current, reference, now))
         val ranked = fresh.map(::choice).sortedWith(compareByDescending<FuelSearchChoice> { it.potential ?: Double.NEGATIVE_INFINITY }
             .thenBy { it.projection.straightKm }.thenBy { it.projection.key })
         val range = constraints.capacity - constraints.reserve
@@ -111,7 +117,7 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
     }
 
     private fun potential(
-        projection: FuelProjection, c: FuelConstraints, required: Double, current: FuelPlan?, now: Instant,
+        projection: FuelProjection, c: FuelConstraints, required: Double, current: FuelPlan?, referencePrice: Double?, now: Instant,
     ): Double? {
         val quote = projection.offer.price ?: return null
         val stops = current?.stops.orEmpty()
@@ -120,7 +126,7 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
         val prior = stops.lastOrNull { it != comparisonStop && it.candidate.rejoinKm < projection.roadKm }
         val available = if (prior == null) c.initial - projection.roadFuel
         else prior.departure - prior.candidate.backFuel - (projection.roadFuel - prior.candidate.rejoinFuel)
-        val reference = comparisonStop?.candidate?.offer?.price ?: corridorPrices?.median ?: return null
+        val reference = comparisonStop?.candidate?.offer?.price ?: referencePrice ?: return null
         val expectedBuy = comparisonStop?.purchased ?: (required + c.reserve - c.initial)
         val headroom = (c.capacity - available.coerceAtLeast(c.reserve)).coerceAtLeast(0.0)
         val remainingDemand = (required - projection.roadFuel + c.reserve - available).coerceAtLeast(0.0)

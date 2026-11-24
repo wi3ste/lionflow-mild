@@ -228,15 +228,16 @@ internal class FuelPlanner(
                     verifier.verify(projection, active.windows.forStation(projection), previous.prediction, limit, budget)
                 }) { extensionProgress = it }
                 val candidates = search.candidates
+                val reference = previous.reference ?: search.referencePrice(now)
                 val revised = if (candidates.size > previous.candidates.size) optimize(previous.road, previous.roadFuel, previous.request, candidates,
-                    previous.priceTime, previous.reference ?: search.corridorPrices?.median, locked, excluded) else emptyMap()
+                    previous.priceTime, reference, locked, excluded) else emptyMap()
                 val comparisons = betterFuelPlans(previous.comparisons, revised)
                 val current = result ?: previous
                 val summary = search.summary(Instant.now()).copy(routeRequests = previous.search.routeRequests,
                     routeCacheHits = previous.search.routeCacheHits)
                 result = current.copy(candidates = candidates, comparisons = comparisons,
                     plan = comparisons[current.request.constraints.strategy] ?: current.plan,
-                    reference = previous.reference ?: search.corridorPrices?.median, search = summary,
+                    reference = reference, search = summary,
                     limited = summary.canExtend || summary.verified < summary.corridor)
                 extensionMessage = when {
                     comparisons != previous.comparisons -> "Better fuel options found"
@@ -349,7 +350,7 @@ internal class FuelPlanner(
                     }
                 }
                 val reference = timed("prices") {
-                    previous?.reference?.takeIf { cacheOnly } ?: search.corridorPrices?.median ?: withContext(Dispatchers.Default) {
+                    previous?.reference?.takeIf { cacheOnly } ?: search.referencePrice(now) ?: withContext(Dispatchers.Default) {
                         val national = stations?.stations.orEmpty().mapNotNull {
                             it.offer(request.grade, request.service, now)?.takeIf { offer -> offer.fresh(now) }?.price
                         }

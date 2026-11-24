@@ -211,6 +211,17 @@ class FuelIncrementalSearchTest {
         assertEquals(PlanApi.FuelAccessResult.NoRoute, PlanApi.parseFuelAccess(route))
     }
 
+    @Test fun staleQuotesStayInDiagnosticsWithoutSettingTheStartingFuelValue() {
+        val fresh = station("fresh", 280.0, 0.0, 1.95)
+        val old = station("stale", 281.0, 0.01, 1.2).let { site ->
+            site.copy(offers = listOf(site.offers.single().copy(reportedAt = at.minusSeconds(8 * 86400L))))
+        }
+        val ledger = FuelStationSearch(project(listOf(fresh, old)), road.totalKm)
+        assertEquals(1.2, ledger.summary(at).corridorQuotes!!.low, 1e-9)
+        assertEquals(1.95, ledger.referencePrice(at)!!, 1e-9)
+        assertNull(ledger.referencePrice(at.plusSeconds(8 * 86400L)))
+    }
+
     private fun FuelPlan.onlyStop() = stops.single().candidate.station.id
 
     private fun project(stations: List<FuelStation>) =

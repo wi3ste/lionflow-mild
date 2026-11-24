@@ -238,10 +238,10 @@ object PlanApi {
     @Volatile private var pauseFuelUntil = Instant.MIN
 
     private suspend fun paceFuelRequest() = fuelRequestLock.withLock {
-        val remaining = Duration.between(Instant.now(), pauseFuelUntil)
-        if (!remaining.isNegative && !remaining.isZero) throw FuelRoutingRateLimited(remaining.seconds + 1)
         val elapsed = priorFuelRequestNanos?.let { (System.nanoTime() - it) / 1_000_000 } ?: 1100
         if (elapsed < 1100) delay(1100 - elapsed)
+        val remaining = Duration.between(Instant.now(), pauseFuelUntil)
+        if (!remaining.isNegative && !remaining.isZero) throw FuelRoutingRateLimited(remaining.seconds + 1)
         priorFuelRequestNanos = System.nanoTime()
     }
 
