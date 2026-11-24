@@ -24,17 +24,22 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import no.lionflow.app.data.AppSettings
+import no.lionflow.app.fuel.FuelCatalogState
 import no.lionflow.app.fuel.FuelCandidate
 import no.lionflow.app.fuel.FuelCheck
 import no.lionflow.app.fuel.FuelCheckReason
@@ -53,6 +58,7 @@ import no.lionflow.app.fuel.FuelStation
 import no.lionflow.app.fuel.FuelStop
 import no.lionflow.app.fuel.FuelStrategy
 import no.lionflow.app.fuel.FuelTripRequest
+import no.lionflow.app.fuel.FuelTripResult
 import no.lionflow.app.fuel.defaultStartingFuel
 import no.lionflow.app.fuel.defaultTankCapacity
 import no.lionflow.app.plan.Place
@@ -349,13 +355,17 @@ private fun String.fuelNumber(): Double? = trim().replace(',', '.').toDoubleOrNu
 internal fun fuelNumber(value: Double, digits: Int) = NumberFormat.getNumberInstance(L10n.locale).apply {
     minimumFractionDigits = digits
     maximumFractionDigits = digits
-}.format(value)
+}.formatFuelValue(value)
 internal fun fuelMoney(value: Double?, currency: String = "EUR", digits: Int = 2): String = if (value == null) L10n.tr("Unknown") else
     NumberFormat.getCurrencyInstance(L10n.locale).apply {
         this.currency = Currency.getInstance(currency)
         minimumFractionDigits = digits
         maximumFractionDigits = digits
-    }.format(value)
+    }.formatFuelValue(value)
+private fun NumberFormat.formatFuelValue(value: Double): String {
+    val formatted = format(value)
+    return if (value.toRawBits() < 0 && formatted == format(-0.0)) format(0.0) else formatted
+}
 internal fun fuelDate(time: Instant): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, L10n.locale).format(Date.from(time))
 
 @Composable
@@ -368,19 +378,14 @@ private fun FuelMetric(label: String, value: String) {
 }
 
 @Composable
-internal fun FuelProgress(p: FuelPlanner) {
+internal fun FuelProgress(p: FuelPlanner, showExtension: Boolean = true) {
     val c = LocalLf.current
     p.busy?.let {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Busy(); Text(it, style = Type.small, color = c.muted) }
         if (p.result?.plan != null) Text("Verified plan · still optimizing", style = Type.small, color = c.muted)
         SecondaryButton(if (p.result?.plan != null) "Keep this plan" else "Cancel calculation") { p.cancel() }
     }
-    p.extensionProgress?.let { progress ->
-        FuelMetric("Additional stations checked", "${progress.examined} / ${progress.planned - progress.selectedRetries}")
-        if (progress.selectedRetries > 0) FuelMetric("Stations retried", "${progress.retried} / ${progress.selectedRetries}")
-        FuelMetric("Stations accepted", progress.accepted.toString())
-    }
-    p.extensionMessage?.let { Text(it, style = Type.small, color = c.muted) }
+    if (showExtension) FuelExtensionStatus(p)
     p.error?.let { Text(it, style = Type.small, color = c.danger) }
     val result = p.result
     if (no.lionflow.app.BuildConfig.DEBUG && result != null && result.plan == null && result.search.corridor > 0) {
@@ -390,6 +395,16 @@ internal fun FuelProgress(p: FuelPlanner) {
         }
         if (showDiagnostics) FuelSearchDiagnostics(result.search, settings = null)
     }
+}
+
+@Composable
+private fun FuelExtensionStatus(p: FuelPlanner) {
+    p.extensionProgress?.let { progress ->
+        FuelMetric("Additional stations checked", "${progress.examined} / ${progress.planned - progress.selectedRetries}")
+        if (progress.selectedRetries > 0) FuelMetric("Stations retried", "${progress.retried} / ${progress.selectedRetries}")
+        FuelMetric("Stations accepted", progress.accepted.toString())
+    }
+    p.extensionMessage?.let { Text(it, style = Type.small, color = LocalLf.current.muted) }
 }
 
 private val FuelSearchRow.reason: FuelCheckReason get() = when (val outcome = check) {
@@ -463,16 +478,20 @@ private fun FuelSearchDiagnostics(search: FuelSearchSummary, settings: AppSettin
 }
 
 @Composable
-internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHistory: Boolean, clickStation: (FuelStation) -> Unit) {
-    val result = p.result ?: return
+internal fun FuelTripResultPanel(
+    p: FuelPlanner,
+    result: FuelTripResult,
+    settings: AppSettings,
+    catalog: FuelCatalogState,
+    newHistory: Boolean,
+    clickStation: (FuelStation) -> Unit,
+) {
     val plan = result.plan ?: return
     val c = LocalLf.current
-    val platform = LocalPlatform.current
     val unit = result.request.grade.unit
     var editingStop by remember(result) { mutableStateOf<FuelStop?>(null) }
     var showComparison by remember { mutableStateOf(false) }
-    var showSamples by remember { mutableStateOf(false) }
-    var showDiagnostics by remember { mutableStateOf(false) }
+    var tripDetails by remember(result.road) { mutableStateOf(false) }
     val strategy = result.request.constraints.strategy
     fun quantity(value: Double) = "${fuelNumber(value, 2)} $unit"
     if (showComparison) {
@@ -516,111 +535,30 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Fuel trip", style = Type.stat, color = c.text)
-        if (p.busy != null) FuelProgress(p)
-        FuelMetric("Selected strategy", L10n.tr(strategy.label))
-        SecondaryButton("Compare fuel strategies") { showComparison = true }
+        if (p.busy != null || p.error != null) FuelProgress(p, showExtension = false)
         FuelMetric("Total distance", fmtDistance(plan.totalKm, settings))
-        FuelMetric("Driving time", planDuration(plan.driveMin))
         FuelMetric("Estimated total time", planDuration(plan.totalMin))
-        val prediction = result.prediction
-        val expected = result.expectedUsed(plan)
-        FuelMetric("Expected average consumption", "${fuelNumber(expected * 100 / plan.totalKm, 1)} $unit/100 km")
-        FuelMetric("Fuel consumed", quantity(expected))
-        FuelMetric("Estimated value of fuel consumed", fuelMoney(result.expectedCost(plan)))
-        FuelMetric("Prediction source", L10n.tr(prediction.source.label))
-        if (newHistory && p.busy == null) SecondaryButton("Recalculate with updated history") { p.recalculateConsumption() }
-        FuelMetric("Consumption safety margin", "${fuelNumber(prediction.safety, 0)}%")
-        FuelMetric("Prudent fuel estimate for reserve", quantity(plan.used))
-        FuelMetric("Minimum reserve", quantity(result.request.constraints.reserve))
-        if (prediction.samples.isNotEmpty()) {
-            FuelMetric("Historical trips used", prediction.samples.size.toString())
-            FuelMetric("Historical distance", fmtDistance(prediction.sampleKm, settings))
-            if (prediction.samples.size < 3) Text("Limited historical support", style = Type.tiny, color = c.muted)
-            TextButton(onClick = { showSamples = !showSamples }) { Text(if (showSamples) "Hide history" else "Show history", color = c.accentInk) }
-            if (showSamples) prediction.samples.take(8).forEach { sample ->
-                FuelMetric(fmtDistance(sample.journey.km, settings) + " · " + planDuration(sample.journey.minutes),
-                    "${fuelNumber(sample.rate, 1)} $unit/100 km")
-            }
-        }
-        if (no.lionflow.app.BuildConfig.DEBUG) {
-            TextButton(onClick = { showDiagnostics = !showDiagnostics; if (showDiagnostics) p.diagnoseConsumption() }) {
-                Text(if (showDiagnostics) "Hide diagnostics" else "Show diagnostics", color = c.accentInk)
-            }
-            if (showDiagnostics) {
-                FuelSearchDiagnostics(result.search, settings)
-                FuelMetric("Maximum detour per stop", fmtDistance(result.request.maxDetour, settings))
-                val backtest = p.backtest
-                if (backtest == null) Text("Running local backtest…", style = Type.small, color = c.muted)
-                else if (backtest.isEmpty()) Text("Insufficient validated history for backtesting", style = Type.small, color = c.muted)
-                else backtest.forEach { band ->
-                    Text(band.band, style = Type.label, color = c.text)
-                    FuelMetric("Historical trips used", band.count.toString())
-                    fun score(metric: no.lionflow.app.fuel.FuelError) =
-                        "${fuelNumber(metric.mae, 2)} · ${fuelNumber(metric.mape, 1)}% · ${fuelNumber(metric.bias, 2)}"
-                    FuelMetric("New MAE / MAPE / bias", score(band.personalized))
-                    FuelMetric("Previous MAE / MAPE / bias", score(band.previous))
-                }
-            }
-        }
-        FuelMetric("Fuel to buy", quantity(plan.purchased))
         FuelMetric("Estimated spend on refuelling", fuelMoney(plan.purchaseCost))
-        FuelMetric("Fuel stops", plan.stops.size.toString())
-        FuelMetric("Extra distance", fmtDistance(plan.detourKm, settings))
-        if (plan.stops.isNotEmpty()) {
-            FuelMetric("Net fuel used by detours", quantity(result.expectedDetourFuel(plan)))
-            FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(plan)))
+        Row(
+            Modifier.fillMaxWidth().clickable(role = Role.Button) { tripDetails = !tripDetails }.heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (tripDetails) "Hide trip details" else "Show trip details",
+                Modifier.weight(1f), style = Type.label, color = c.accentInk)
+            FuelDisclosureChevron(tripDetails)
         }
-        FuelMetric("Extra time for fuel stops", signedDuration(plan.extraMin))
-        FuelMetric("Fuel at arrival", quantity(plan.remaining))
-        if (plan.stops.isEmpty()) Text("No refuelling needed", color = c.muted, style = Type.small)
-        if (p.busy == null) FuelProgress(p)
-        if (result.limited) {
-            Text("Plan based on a limited set of road-verified stations.", color = c.muted, style = Type.tiny)
-            if (p.busy == null && result.search.canExtend) SecondaryButton("Check more stations") { p.searchMore() }
+        if (tripDetails) {
+            FuelTripDetails(p, result, plan, settings, catalog, newHistory) { showComparison = true }
         }
 
-        for ((i, stop) in plan.stops.withIndex()) {
-            val station = stop.candidate.station
-            val offer = stop.candidate.offer
-            val shape = RoundedCornerShape(14.dp)
-            Column(Modifier.fillMaxWidth().background(c.raised, shape).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${i + 1}", style = Type.stat, color = c.accentInk)
-                    androidx.compose.material3.Text(stationName(station), style = Type.label, color = c.text,
-                        modifier = Modifier.weight(1f).clickable { clickStation(station) })
-                    if (stop.candidate.key in p.locked) Text("Locked", color = c.accentInk, style = Type.tiny)
-                }
-                androidx.compose.material3.Text(station.location, style = Type.small, color = c.muted)
-                FuelMetric("Position along the trip", fmtDistance(stop.candidate.projection.roadKm, settings))
-                FuelMetric("Estimated arrival", fuelDate(result.request.departure.plusSeconds((stop.atMinute * 60).toLong())))
-                FuelMetric("Fuel at arrival", quantity(stop.arrival))
-                FuelMetric("Buy", quantity(stop.purchased))
-                FuelMetric("Fuel after refuelling", quantity(stop.departure))
-                Text(when {
-                    stop.candidate.key in p.locked -> "Station kept by your edit"
-                    strategy == FuelStrategy.ECONOMY -> "Part of the lowest estimated refuelling cost found"
-                    strategy == FuelStrategy.FAST -> "Part of the fastest feasible plan found"
-                    else -> "Part of the best cost and time trade-off found"
-                }, color = c.muted, style = Type.tiny)
-                FuelMetric("Unit price", fuelPrice(offer, result.priceTime))
-                FuelMetric("Refuelling cost", fuelMoney(stop.cost, offer.currency))
-                FuelMetric("Road detour", "${fmtDistance(stop.candidate.detourKm, settings)} · ${signedDuration(stop.candidate.detourMin)}")
-                FuelMetric("Net fuel used by this detour", quantity(result.expectedDetourFuel(stop)))
-                FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(stop), offer.currency))
-                FuelMetric("Service", offer.service?.label?.let(L10n::tr) ?: L10n.tr("Unknown"))
-                FuelMetric("Price reported", offer.reportedAt?.let(::fuelDate) ?: L10n.tr("Unknown"))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (p.busy == null) SecondaryButton("Edit fuel stop") { editingStop = stop }
-                    SecondaryButton("Navigate") { platform.openUrl("google.navigation:q=${station.lat},${station.lon}") }
-                }
-            }
+        if (plan.stops.isEmpty()) Text("No refuelling needed", color = c.muted, style = Type.small)
+        else FuelMetric("Fuel stops", plan.stops.size.toString())
+        for ((index, stop) in plan.stops.withIndex()) key(result.road, stop.candidate.key) {
+            FuelStopCard(p, result, stop, index, settings, clickStation) { editingStop = stop }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (p.busy == null) SecondaryButton("Edit trip") { p.editing = true }
-            if (plan.stops.isNotEmpty() && p.busy == null) SecondaryButton("Reset fuel stops") { p.resetStops() }
+        if (p.busy == null) TextButton(onClick = { p.editing = true }) {
+            Text("Edit trip", color = c.accentInk)
         }
-        PrimaryButton("Open in Maps", Modifier.fillMaxWidth(), icon = LfIcons.Locate) { platform.openUrl(result.navigationUrl()) }
     }
     editingStop?.let { stop ->
         var amount by remember(stop) { mutableStateOf(p.locked[stop.candidate.key]?.amount?.toString().orEmpty()) }
@@ -661,6 +599,158 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
             },
             dismissButton = { TextButton(onClick = { editingStop = null }) { Text("Cancel", color = c.muted) } },
         )
+    }
+}
+
+@Composable
+private fun FuelDisclosureChevron(expanded: Boolean) {
+    LfIcon(LfIcons.Chevron, LocalLf.current.accentInk, 18.dp, modifier = Modifier.rotate(if (expanded) -90f else 90f))
+}
+
+@Composable
+private fun FuelTripDetails(
+    p: FuelPlanner,
+    result: FuelTripResult,
+    plan: FuelPlan,
+    settings: AppSettings,
+    catalog: FuelCatalogState,
+    newHistory: Boolean,
+    compare: () -> Unit,
+) {
+    val c = LocalLf.current
+    val prediction = result.prediction
+    val unit = result.request.grade.unit
+    val expected = result.expectedUsed(plan)
+    fun quantity(value: Double) = "${fuelNumber(value, 2)} $unit"
+    var showSamples by remember { mutableStateOf(false) }
+    var showDiagnostics by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FuelMetric("Selected strategy", L10n.tr(result.request.constraints.strategy.label))
+        SecondaryButton("Compare fuel strategies", onClick = compare)
+        FuelMetric("Driving time", planDuration(plan.driveMin))
+        FuelMetric("Expected average consumption", "${fuelNumber(expected * 100 / plan.totalKm, 1)} $unit/100 km")
+        FuelMetric("Fuel consumed", quantity(expected))
+        FuelMetric("Estimated value of fuel consumed", fuelMoney(result.expectedCost(plan)))
+        FuelMetric("Fuel to buy", quantity(plan.purchased))
+        FuelMetric("Fuel at arrival", quantity(plan.remaining))
+        if (plan.stops.isNotEmpty()) {
+            FuelMetric("Extra distance", fmtDistance(plan.detourKm, settings))
+            FuelMetric("Net fuel used by detours", quantity(result.expectedDetourFuel(plan)))
+            FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(plan)))
+            FuelMetric("Extra time for fuel stops", signedDuration(plan.extraMin))
+        }
+        FuelMetric("Prediction source", L10n.tr(prediction.source.label))
+        FuelMetric("Consumption safety margin", "${fuelNumber(prediction.safety, 0)}%")
+        FuelMetric("Prudent fuel estimate for reserve", quantity(plan.used))
+        FuelMetric("Minimum reserve", quantity(result.request.constraints.reserve))
+        if (prediction.samples.isNotEmpty()) {
+            TextButton(onClick = { showSamples = !showSamples }) {
+                Text(if (showSamples) "Hide history" else "Show history", color = c.accentInk)
+            }
+            if (showSamples) {
+                FuelMetric("Historical trips used", prediction.samples.size.toString())
+                FuelMetric("Historical distance", fmtDistance(prediction.sampleKm, settings))
+                if (prediction.samples.size < 3) Text("Limited historical support", style = Type.tiny, color = c.muted)
+                prediction.samples.take(8).forEach { sample ->
+                    FuelMetric(fmtDistance(sample.journey.km, settings) + " · " + planDuration(sample.journey.minutes),
+                        "${fuelNumber(sample.rate, 1)} $unit/100 km")
+                }
+            }
+        }
+        if (newHistory && p.busy == null) SecondaryButton("Recalculate with updated history") { p.recalculateConsumption() }
+        if (result.limited) {
+            Text("Plan based on a limited set of road-verified stations.", color = c.muted, style = Type.tiny)
+            if (p.busy == null && result.search.canExtend) SecondaryButton("Check more stations") { p.searchMore() }
+        }
+        FuelExtensionStatus(p)
+        if (plan.stops.isNotEmpty() && p.busy == null) SecondaryButton("Reset fuel stops") { p.resetStops() }
+        if (no.lionflow.app.BuildConfig.DEBUG) {
+            TextButton(onClick = { showDiagnostics = !showDiagnostics; if (showDiagnostics) p.diagnoseConsumption() }) {
+                Text(if (showDiagnostics) "Hide diagnostics" else "Show diagnostics", color = c.accentInk)
+            }
+            if (showDiagnostics) {
+                FuelSearchDiagnostics(result.search, settings)
+                FuelMetric("Maximum detour per stop", fmtDistance(result.request.maxDetour, settings))
+                val backtest = p.backtest
+                if (backtest == null) Text("Running local backtest…", style = Type.small, color = c.muted)
+                else if (backtest.isEmpty()) Text("Insufficient validated history for backtesting", style = Type.small, color = c.muted)
+                else backtest.forEach { band ->
+                    Text(band.band, style = Type.label, color = c.text)
+                    FuelMetric("Historical trips used", band.count.toString())
+                    fun score(metric: no.lionflow.app.fuel.FuelError) =
+                        "${fuelNumber(metric.mae, 2)} · ${fuelNumber(metric.mape, 1)}% · ${fuelNumber(metric.bias, 2)}"
+                    FuelMetric("New MAE / MAPE / bias", score(band.personalized))
+                    FuelMetric("Previous MAE / MAPE / bias", score(band.previous))
+                }
+            }
+        }
+        FuelSyncStatus(catalog) { p.refresh(force = true) }
+    }
+}
+
+@Composable
+private fun FuelStopCard(
+    p: FuelPlanner,
+    result: FuelTripResult,
+    stop: FuelStop,
+    index: Int,
+    settings: AppSettings,
+    clickStation: (FuelStation) -> Unit,
+    editStop: () -> Unit,
+) {
+    val c = LocalLf.current
+    val platform = LocalPlatform.current
+    val station = stop.candidate.station
+    val offer = stop.candidate.offer
+    val locked = stop.candidate.key in p.locked
+    val shape = RoundedCornerShape(14.dp)
+    var expanded by remember { mutableStateOf(false) }
+    fun quantity(value: Double) = "${fuelNumber(value, 2)} ${result.request.grade.unit}"
+
+    Column(Modifier.fillMaxWidth().clip(shape).background(c.raised), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clickable(
+                role = Role.Button,
+                onClickLabel = L10n.tr(if (expanded) "Hide stop details" else "Show stop details"),
+            ) { expanded = !expanded }.heightIn(min = 60.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("${index + 1}", style = Type.stat, color = c.accentInk)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                androidx.compose.material3.Text(stationName(station), style = Type.label, color = c.text)
+                Text("Buy ${quantity(stop.purchased)}", style = Type.small, color = c.muted)
+            }
+            if (locked) Text("Locked", color = c.accentInk, style = Type.tiny)
+            FuelDisclosureChevron(expanded)
+        }
+        if (expanded) Column(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            androidx.compose.material3.Text(station.location, style = Type.small, color = c.muted)
+            FuelMetric("Position along the trip", fmtDistance(stop.candidate.projection.roadKm, settings))
+            FuelMetric("Estimated arrival", fuelDate(result.request.departure.plusSeconds((stop.atMinute * 60).toLong())))
+            FuelMetric("Fuel at arrival", quantity(stop.arrival))
+            FuelMetric("Fuel after refuelling", quantity(stop.departure))
+            Text(when {
+                locked -> "Station kept by your edit"
+                result.request.constraints.strategy == FuelStrategy.ECONOMY -> "Part of the lowest estimated refuelling cost found"
+                result.request.constraints.strategy == FuelStrategy.FAST -> "Part of the fastest feasible plan found"
+                else -> "Part of the best cost and time trade-off found"
+            }, color = c.muted, style = Type.tiny)
+            FuelMetric("Unit price", fuelPrice(offer, result.priceTime))
+            FuelMetric("Refuelling cost", fuelMoney(stop.cost, offer.currency))
+            FuelMetric("Road detour", "${fmtDistance(stop.candidate.detourKm, settings)} · ${signedDuration(stop.candidate.detourMin)}")
+            FuelMetric("Net fuel used by this detour", quantity(result.expectedDetourFuel(stop)))
+            FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(stop), offer.currency))
+            FuelMetric("Service", offer.service?.label?.let(L10n::tr) ?: L10n.tr("Unknown"))
+            FuelMetric("Price reported", offer.reportedAt?.let(::fuelDate) ?: L10n.tr("Unknown"))
+            TextButton(onClick = { clickStation(station) }) { Text("Show station on map", color = c.accentInk) }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (p.busy == null) SecondaryButton("Edit fuel stop", onClick = editStop)
+                SecondaryButton("Navigate") { platform.openUrl("google.navigation:q=${station.lat},${station.lon}") }
+            }
+        }
     }
 }
 

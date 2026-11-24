@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -541,14 +542,15 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     .height(fullH * 0.56f)
             }
             val shape = RoundedCornerShape(if (fuelFormFull) 0.dp else 24.dp)
+            val fuelScroll = key(fp.editing, activeFuelResult != null) { rememberScrollState() }
             Column(panel.shadow(if (fuelFormFull) 0.dp else 12.dp, shape).clip(shape).background(c.card).blockTouches()) {
                 PlanHeader(back = fuelFormFull, title = "Fuel trip planner") {
                     if (fuelFormFull && activeFuelResult != null) fp.editing = false else fp.close()
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                Column(Modifier.weight(1f).verticalScroll(fuelScroll).padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (fp.editing) FuelTripForm(fp, p, fuelForm, ui)
-                    else if (activeFuelResult != null) FuelTripResultPanel(fp, s, fp.historyChanged(ui.trips)) { station ->
+                    else if (activeFuelResult != null) FuelTripResultPanel(fp, activeFuelResult, s, catalog, fp.historyChanged(ui.trips)) { station ->
                         selectedFuel = station
                         showOnMap(station.lat, station.lon)
                     } else {
@@ -556,7 +558,11 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                         if (fp.busy == null && fp.result?.search?.canExtend == true) SecondaryButton("Check more stations") { fp.searchMore() }
                         SecondaryButton("Edit trip") { fp.editing = true }
                     }
-                    FuelSyncStatus(catalog) { fp.refresh(force = true) }
+                    if (fp.editing || activeFuelResult == null) FuelSyncStatus(catalog) { fp.refresh(force = true) }
+                }
+                if (!fp.editing && activeFuelResult != null) {
+                    PrimaryButton("Open in Maps", Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                        icon = LfIcons.Locate) { platform.openUrl(activeFuelResult.navigationUrl()) }
                 }
             }
             if ((fuelSheet || (wide && !fp.editing)) && selectedFuel != null) {
