@@ -13,6 +13,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import no.lionflow.app.fuel.*
+import no.lionflow.app.plan.Place
+import no.lionflow.app.plan.RouteData
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.maplibre.android.MapLibre
@@ -110,5 +114,45 @@ class FuelMapRenderingTest {
             checkNotNull(map).moveCamera(CameraUpdateFactory.newLatLngZoom(position, 15.0))
         }
         awaitRender("restored station marker at zoom 15") { rendered(DOTS).any { it.getStringProperty("id") == "id-0" } }
+        val from = Place("From", "", 42.0, 12.0)
+        val to = Place("To", "", 42.0, 12.005)
+        val road = RouteData(doubleArrayOf(from.lat, to.lat), doubleArrayOf(from.lon, to.lon),
+            doubleArrayOf(0.0, 0.4), doubleArrayOf(0.0, 1.0), doubleArrayOf(0.0, 24.0))
+        val prediction = FuelConsumption.estimate(FuelGrade.PETROL, FuelProfile.MILD, emptyList(), 5.0, 5.0)
+        val constraints = FuelConstraints(40.0, 10.0, 3.0, FuelStrategy.BALANCED)
+        val request = FuelTripRequest(from, to, emptyList(), false, now, FuelGrade.PETROL, FuelServiceFilter.ANY,
+            FuelProfile.MILD, 5.0, 5.0, constraints, 5.0)
+        fun option(index: Int): FuelPlan {
+            val projection = FuelProjection(stations[index], offer, if (index == 0) from else to, 90,
+                index * 0.4, index.toDouble(), 0.01, 0.0)
+            return FuelPlan(0.02, 13.0, listOf(FuelStop(FuelCandidate(projection, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                10.0, 3.0, 0.0)), 1.0, 0.4, 0.03)
+        }
+        val first = option(0)
+        val second = option(1)
+        val result = FuelTripResult(request, road, 0.02, emptyList(), 1.5, now, true, first, prediction,
+            FuelSearchSummary(2, 2, 2, 1.5 to 1.5, 2, false), mapOf(FuelStrategy.BALANCED to first, FuelStrategy.FAST to second))
+        compose.runOnUiThread {
+            val loaded = checkNotNull(style)
+            assertNotNull(loaded.getLayer(COUNTS))
+            updateFuelCatalogLayer(loaded, data.takeIf { fuelCatalogVisible(enabled = true, hasPlan = true) })
+            updateFuelPlanLayers(loaded, result)
+        }
+        awaitRender("plan isolates the selected station") {
+            rendered(DOTS).isEmpty() && rendered(CLUSTERS).isEmpty() && rendered(WAYPOINTS).isNotEmpty() &&
+                rendered(STOPS).map { it.getStringProperty("id") } == listOf("id-0")
+        }
+        compose.runOnUiThread {
+            val fast = result.withStrategy(FuelStrategy.FAST)
+            assertEquals(FuelStrategy.FAST, fast.request.constraints.strategy)
+            updateFuelPlanLayers(checkNotNull(style), fast)
+        }
+        awaitRender("strategy updates the inspected stop") { rendered(STOPS).map { it.getStringProperty("id") } == listOf("id-1") }
+        compose.runOnUiThread {
+            val loaded = checkNotNull(style)
+            updateFuelPlanLayers(loaded, null)
+            updateFuelCatalogLayer(loaded, data.takeIf { fuelCatalogVisible(enabled = true, hasPlan = false) })
+        }
+        awaitRender("closing restores the catalogue") { rendered(DOTS).isNotEmpty() && rendered(STOPS).isEmpty() }
     }
 }

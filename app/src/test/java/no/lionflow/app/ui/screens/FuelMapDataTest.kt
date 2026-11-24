@@ -9,6 +9,13 @@ import java.time.Instant
 import java.util.Locale
 
 class FuelMapDataTest {
+    @Test fun catalogIsHiddenByPlanAndRestoredOnClosing() {
+        assertTrue(fuelCatalogVisible(true, false))
+        assertFalse(fuelCatalogVisible(true, true))
+        assertFalse(fuelCatalogVisible(false, false))
+        assertTrue(fuelCatalogVisible(true, false))
+    }
+
     @Test fun collectionRoundTripsCoordinatesIdsPricesAndMarkerColors() {
         val now = Instant.parse("2026-07-29T10:00:00Z")
         fun station(id: String, offer: FuelOffer?) = FuelStation(

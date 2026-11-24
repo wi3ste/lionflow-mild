@@ -52,9 +52,14 @@ internal const val CLUSTERS = "lf-fuel-clusters"
 internal const val DOTS = "lf-fuel-dots"
 private const val LABELS = "lf-fuel-labels"
 private const val LABEL_SOURCE = "lf-fuel-price-source"
-private const val STOPS = "lf-fuel-stops"
+internal const val COUNTS = "lf-fuel-counts"
+private const val COUNT_SOURCE = "lf-fuel-count-source"
+internal const val WAYPOINTS = "lf-fuel-waypoints"
+internal const val STOPS = "lf-fuel-stops"
 private const val DETOURS = "lf-fuel-detours"
 private val NO_FEATURES = FeatureCollection.fromFeatures(emptyList<Feature>())
+
+internal fun fuelCatalogVisible(enabled: Boolean, hasPlan: Boolean) = enabled && !hasPlan
 
 internal data class FuelMapData(val stations: Map<String, FuelStation>, val features: FeatureCollection)
 
@@ -99,7 +104,10 @@ internal fun addFuelLayers(style: Style) {
         runCatching { style.addLayer(create()) }
             .onFailure { Log.e(TAG, "Cannot add layer $id", it) }
     }
-    source(STATIONS, GeoJsonOptions().withCluster(true).withClusterMaxZoom(11).withClusterRadius(48))
+    fun clusterOptions() = GeoJsonOptions().withCluster(true).withClusterMaxZoom(11).withClusterRadius(48)
+    source(STATIONS, clusterOptions())
+    source(COUNT_SOURCE, clusterOptions())
+    source(WAYPOINTS)
     source(STOPS)
     source(DETOURS)
     source(LABEL_SOURCE)
@@ -122,6 +130,15 @@ internal fun addFuelLayers(style: Style) {
         PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
         PropertyFactory.textOffset(arrayOf(0f, 1.05f)), PropertyFactory.textColor("#272018"),
         PropertyFactory.textHaloColor("#FFFFFF"), PropertyFactory.textHaloWidth(2f)).apply { minZoom = 12f } }
+    // Count glyphs have their own source, just like price labels.
+    layer(COUNTS) { SymbolLayer(COUNTS, COUNT_SOURCE).withFilter(clustered).withProperties(
+        PropertyFactory.textField(Expression.toString(Expression.get("point_count"))),
+        PropertyFactory.textFont(arrayOf("Noto Sans Regular")), PropertyFactory.textSize(12f),
+        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textAllowOverlap(true),
+    ).apply { maxZoom = 12f } }
+    layer(WAYPOINTS) { CircleLayer(WAYPOINTS, WAYPOINTS).withProperties(
+        PropertyFactory.circleColor("#222A3C"), PropertyFactory.circleRadius(6f),
+        PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(2f)) }
     layer(STOPS) { CircleLayer(STOPS, STOPS).withProperties(
         PropertyFactory.circleColor("#2F63DC"), PropertyFactory.circleRadius(11f),
         PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(3f)) }
@@ -131,16 +148,22 @@ internal fun updateFuelCatalogLayer(style: Style, mapData: FuelMapData?) {
     addFuelLayers(style)
     val source = style.getSourceAs<GeoJsonSource>(STATIONS) ?: return
     val features = mapData?.features ?: NO_FEATURES
+    val started = System.nanoTime()
     source.setGeoJson(features)
+    style.getSourceAs<GeoJsonSource>(COUNT_SOURCE)?.setGeoJson(features)
     style.getSourceAs<GeoJsonSource>(LABEL_SOURCE)?.setGeoJson(features)
     if (BuildConfig.DEBUG) Log.d(TAG, "source=$STATIONS features=${mapData?.stations?.size ?: 0} " +
-        "layers=${listOf(CLUSTERS, DOTS, LABELS, STOPS).filter { style.getLayer(it) != null }}")
+        "submitMs=${(System.nanoTime() - started) / 1_000_000} layers=${listOf(CLUSTERS, COUNTS, DOTS, LABELS, STOPS).filter { style.getLayer(it) != null }}")
 }
 
 internal fun updateFuelPlanLayers(style: Style, result: FuelTripResult?) {
     if (result == null && style.getSource(STOPS) == null) return
     addFuelLayers(style)
     val stops = result?.plan?.stops.orEmpty()
+    val places = result?.request?.let { listOf(it.from) + it.via + it.to }.orEmpty()
+    style.getSourceAs<GeoJsonSource>(WAYPOINTS)?.setGeoJson(FeatureCollection.fromFeatures(places.map {
+        Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat))
+    }))
     style.getSourceAs<GeoJsonSource>(STOPS)?.setGeoJson(FeatureCollection.fromFeatures(stops.map { stop ->
         val station = stop.candidate.station
         Feature.fromGeometry(Point.fromLngLat(station.lon, station.lat)).apply {

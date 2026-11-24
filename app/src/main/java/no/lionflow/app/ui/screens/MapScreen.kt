@@ -145,6 +145,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val catalog by fp.catalog.state.collectAsStateWithLifecycle()
     val fuelVisible = supportsFuel && (fuelLayer || fp.open)
     val activeFuelResult = fp.result?.takeIf { supportsFuel && fp.open && it.plan != null }
+    val showFuelCatalog = fuelCatalogVisible(fuelVisible, activeFuelResult != null)
     val priceClock = remember(ui.now / 3_600_000) { Instant.now() }
     LaunchedEffect(fuelVisible) { if (fuelVisible) fp.refresh() }
     LaunchedEffect(fuelVisible, catalog.snapshot, fp.grade, fp.service, L10n.lang, priceClock) {
@@ -160,7 +161,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     val lookupFuel by rememberUpdatedState<(String) -> FuelStation?>({ id ->
         if (!fuelVisible) null else activeFuelResult?.plan?.stops?.firstOrNull { it.candidate.station.id == id }?.candidate?.station
-            ?: fuelMap?.stations?.get(id)
+            ?: fuelMap?.stations?.get(id).takeIf { showFuelCatalog }
     })
     val showFuel by rememberUpdatedState<(FuelStation?) -> Unit>({ selectedFuel = it })
     var fallbackRequested by remember { mutableStateOf(false) }
@@ -251,10 +252,10 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         val st = styleLoaded ?: return@LaunchedEffect
         try { updateLayers(ctx, st, visible, ui, c.accent, c.isDark, is3d, routeJson, if (planning) p else null) } catch (_: Exception) { }
     }
-    LaunchedEffect(styleLoaded, fuelMap, fuelVisible) {
+    LaunchedEffect(styleLoaded, fuelMap, showFuelCatalog) {
         val st = styleLoaded ?: return@LaunchedEffect
-        if (fuelVisible || st.getSource(STATIONS) != null) {
-            runCatching { updateFuelCatalogLayer(st, fuelMap.takeIf { fuelVisible }) }
+        if (showFuelCatalog || st.getSource(STATIONS) != null) {
+            runCatching { updateFuelCatalogLayer(st, fuelMap.takeIf { showFuelCatalog }) }
                 .onFailure { Log.e("FuelMap", "Cannot populate station source", it) }
         }
     }
@@ -518,11 +519,12 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (fp.editing) FuelTripForm(fp, p, fuelForm, ui)
-                    else if (activeFuelResult != null) FuelTripResultPanel(fp, s) { station ->
+                    else if (activeFuelResult != null) FuelTripResultPanel(fp, s, fp.historyChanged(ui.trips)) { station ->
                         selectedFuel = station
                         showOnMap(station.lat, station.lon)
                     } else {
                         FuelProgress(fp)
+                        if (fp.busy == null && fp.result?.search?.canExtend == true) SecondaryButton("Check more stations") { fp.searchMore() }
                         SecondaryButton("Edit trip") { fp.editing = true }
                     }
                     FuelSyncStatus(catalog) { fp.refresh(force = true) }

@@ -1084,3 +1084,38 @@ No feasible alternatives among verified stations					Nessuna alternativa fattibi
 Change in refuelling cost					Differenza nella spesa per i rifornimenti
 Change in trip time					Differenza nella durata del viaggio
 Checking fuel stations… {0}/{1}					Verifica dei distributori… {0}/{1}
+Recorded trips on this route					Viaggi registrati su questo itinerario
+Comparable trips					Viaggi simili
+Consumption is estimated after routing.					Il consumo viene stimato dopo il calcolo del percorso.
+Verified plan · still optimizing					Piano verificato · ottimizzazione in corso
+Keep this plan					Mantieni questo piano
+Cancel calculation					Annulla il calcolo
+The cached stations cannot cover the new fuel settings.					I distributori già verificati sono insufficienti per i nuovi parametri.
+Same solution in verified stations					Stessa soluzione tra i distributori verificati
+Show details					Mostra dettagli
+Hide details					Nascondi dettagli
+Selected: {0}					Selezionata: {0}
+Expected average consumption					Consumo medio atteso
+Prediction source					Fonte della previsione
+Prudent fuel estimate for reserve					Consumo prudenziale per la riserva
+Historical trips used					Viaggi storici utilizzati
+Historical distance					Distanza storica totale
+Hide history					Nascondi storico
+Show history					Mostra storico
+Hide diagnostics					Nascondi diagnostica
+Show diagnostics					Mostra diagnostica
+Stations in corridor					Distributori nel corridoio
+Stations verified / examined					Distributori verificati / esaminati
+Fresh prices at verified stations					Prezzi recenti tra le stazioni verificate
+Verified quote range					Intervallo dei prezzi verificati
+Running local backtest…					Validazione sullo storico in corso…
+Insufficient validated history for backtesting					Storico validato insufficiente per il confronto
+New MAE / MAPE / bias					Nuovo MAE / MAPE / bias
+Previous MAE / MAPE / bias					Precedente MAE / MAPE / bias
+Short trips					Viaggi brevi
+Medium trips					Viaggi medi
+Long trips					Viaggi lunghi
+Check more stations					Verifica altri distributori
+Limited historical support					Previsione basata su pochi viaggi
+Waiting briefly for driving history…					Attesa breve dello storico dei viaggi…
+Recalculate with updated history					Ricalcola con lo storico aggiornato

@@ -20,7 +20,7 @@ class FuelPlannerTest {
         assertEquals(ConsumptionSource.HISTORY, history.source)
         assertEquals(6.0, history.per100, 1e-8)
         assertEquals(6.6, history.amount(100.0, 70.0), 1e-8)
-        assertTrue(history.amount(100.0, 30.0) < history.amount(100.0, 115.0))
+        assertEquals(history.amount(100.0, 30.0), history.amount(100.0, 115.0), 1e-8)
         val manual = FuelConsumption.estimate(FuelGrade.PETROL, FuelProfile.FULL, trips, 9.0, 20.0)
         assertEquals(ConsumptionSource.MANUAL, manual.source)
         assertEquals(10.8, manual.amount(100.0, 30.0), 1e-8)
@@ -152,10 +152,11 @@ class FuelPlannerTest {
         val model = FuelConsumption.estimate(FuelGrade.PETROL, FuelProfile.COMBUSTION, emptyList(), 10.0, 0.0)
         val projections = listOf(motorway) + List(7) { tooFar } + cheaper
         var batches = 0
-        val verified = verifyFuelBatches(projections) { batch ->
+        val verified = mutableListOf<FuelCandidate>()
+        searchFuelWaves(projections, 8) { batch ->
             batches++
             if (batches == 2) assertEquals("motorway", plan(15.0, 10.0, listOf(motorway))!!.stops.single().candidate.station.id)
-            batch.mapNotNull { candidate ->
+            verified += batch.mapNotNull { candidate ->
                 val road = when (candidate.station.id) {
                     "motorway" -> PlanApi.FuelAccess(0.0, 0.0, 0.0, 0.0, "")
                     "local" -> PlanApi.FuelAccess(5.0, 5.0, 4.0, 4.0, "")
@@ -163,6 +164,7 @@ class FuelPlannerTest {
                 }
                 FuelCandidate.verified(candidate.projection, road, 10.0, model)
             }
+            FuelStrategy.entries.associateWith { plan(15.0, 10.0, verified, it)!!.score }
         }
         assertEquals(2, batches)
         assertEquals(listOf("motorway", "local"), verified.map { it.station.id })
