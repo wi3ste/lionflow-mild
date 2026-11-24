@@ -82,6 +82,7 @@ The watch app doesn't update itself. Install a new version the same way when you
 - **Remote control:** lock/unlock, lights, horn, pre-heating, and start/stop charging, confirmed with fingerprint or security code
 - **Map:** free vector map (MapLibre + OpenFreeMap) in 2D/3D that you can drag, zoom and rotate, showing you, the car and charging stations — free from OpenStreetMap (no key), or from NOBIL if you add a free API key
 - **EV trip planner** (fully electric cars): type where you are going, and LionFlow draws the route and picks fast-charging stops from your start charge and the lowest charge you accept. Battery use is tuned with your own longest trips. Change how full to charge or how long to stay at each stop, swap chargers, and save addresses. Prices are the operators' usual drop-in prices from a small built-in table (Norway and Germany so far), not live prices
+- **Fuel trip planner** (combustion and hybrid cars): plan fuel stops in Italy with official MIMIT prices, road-verified detours, fuel reserve and tank limits. Compare economy, balanced and fast plans, and browse the independent fuel station map. [Fuel Trip Planner guide](docs/FUEL_TRIP_PLANNER.md)
 - **Weather** now and the forecast where you are (MET Norway)
 - **Trips** with CSV export and import, plus your own service history
 - **Home-screen widget:** battery %, charging, range, pre-heating and outside temperature
@@ -93,7 +94,7 @@ The watch app doesn't update itself. Install a new version the same way when you
 
 - Tokens, the remote-control state and your security code are encrypted with an Android Keystore key (AES-256-GCM).
 - Your password is only typed on Peugeot's own page. The app never sees it.
-- There is no backend and no analytics. The app talks directly to Peugeot, OpenFreeMap, OpenStreetMap (Overpass), Photon and OSRM (trip planner), MET Norway, GitHub (updates) and — only if you choose it — NOBIL.
+- There is no backend and no analytics. The app talks directly to Peugeot, OpenFreeMap, OpenStreetMap (Overpass), Photon and OSRM (trip planner), MIMIT (Italian fuel stations), MET Norway, GitHub (updates) and — only if you choose it — NOBIL.
 
 
 ## Disclaimer

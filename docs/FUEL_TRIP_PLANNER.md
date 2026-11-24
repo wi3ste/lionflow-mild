@@ -1,0 +1,52 @@
+# Fuel Trip Planner
+
+Open **Map → Plan a fuel trip** for a combustion, mild hybrid or full hybrid vehicle. A plug-in hybrid can plan in fuel-only mode. Select the fuel grade, enter the usable tank capacity, and check the starting level, reserve, consumption estimate and detour limit before routing. The start defaults to the vehicle's position, then to the phone's position when available. You can use up to three vias, make a round trip and pick a departure time for the stop ETAs. The map also has an independent **Fuel stations** layer and a manual refresh.
+
+## Data and updates
+
+Source is the **Ministero delle Imprese e del Made in Italy — Osservaprezzi Carburanti**, [Carburanti – Prezzi praticati e anagrafica degli impianti](https://www.mimit.gov.it/it/open-data/elenco-dataset/carburanti-prezzi-praticati-e-anagrafica-degli-impianti), reused and transformed for display and routing under the [Italian Open Data License 2.0](https://www.dati.gov.it/content/italian-open-data-license-v20). The app fetches the [station registry](https://www.mimit.gov.it/images/exportCSV/anagrafica_impianti_attivi.csv) and the [daily 08:00 price export](https://www.mimit.gov.it/images/exportCSV/prezzo_alle_8.csv) directly. The 08:00 timestamp describes the snapshot. The date at the top of the file and a price's individual communication date can differ.
+
+The importer validates headers by name and joins by `idImpianto`. The archived 29 July 2026 exports use a date preamble and pipe delimiters. The station file is UTF-8 and the prices file contains ASCII text. The importer also handles semicolon, comma and tab headers, UTF BOMs and Windows-1252 as a decoding fallback. It resolves duplicate records, filters invalid coordinates and anomalous quotes, and keeps the most recently communicated offer for each standard grade and service. Regular petrol, diesel and LPG are in EUR/L. Compressed methane (CNG) is in EUR/kg. LNG, HVO and proprietary premium grades are outside the standard-grade list. A quote older than seven days, without a timestamp or dated in the future is excluded from the cheapest highlight. Where compatibility is known, missing quotes remain usable and leave the cost unquoted.
+
+The first visit to the fuel map schedules network-constrained WorkManager refreshes every 12 hours. The foreground refresh checks the daily window at 08:30 in Europe/Rome and accepts the previous day's snapshot. Android can defer background work. A manual refresh can bypass the daily check. Automatic retries have a 15-minute in-process cooldown. The cache is a private gzip file written to a temporary file, synced and atomically replaced after validation. Errors, older exports and substantial registry or price truncation preserve the last good snapshot. A spatial grid indexes stations for corridor queries. The map converts the selected grade and service to GeoJSON off the UI thread and uses native MapLibre clustering. The green marker denotes the lowest decile of fresh prices in the selected catalog and filter. The detail card shows quote age and the map shows last successful synchronization.
+
+The existing charger pipeline builds weekly global static tiles from Geofabrik and publishes them with GitHub Actions. Fuel prices change daily and both Italian exports are small enough for on-demand downloads. Direct ingestion keeps the data source authoritative and allows forks and local builds to use the feature independently of a publishing workflow.
+
+## Vehicle inputs and consumption
+
+The planner uses the Stellantis fuel percentage when present. For petrol and diesel, it can estimate the starting quantity from reported fuel range and the baseline rate if the percentage is missing. The user can override the estimate, use a percentage or enter a quantity. Tank capacity uses manual entry because the current vehicle API model lacks a validated tank-capacity field. Capacity and manual consumption are saved per vehicle and grade. Hybrid profiles handle the electric contribution via the observed fuel rate and speed factors.
+
+Fuel history for petrol and diesel uses litres and distance when available, with the trip average as a fallback. It uses up to 150 recent trips, ignores implausible or very short trips and trims rates outside a band around the median before a distance-weighted fit. Three qualifying trips totaling at least 50 km are required. LPG and CNG use their own typical rates or manual input because Stellantis trip history lacks reliable grade and CNG mass. Fuel-only plug-in plans also use a typical or manual rate, since history may include externally charged energy. Typical petrol rates distinguish combustion, mild and full hybrid. An automatic estimate adjusts for segment speed and known ferry sections consume zero road fuel; the ferry time remains in the itinerary. A manual rate applies uniformly to driving segments. The safety margin applies to both the main road and detours. The form identifies the source and results display the adjusted route average.
+
+## Routing and optimization
+
+`FuelPlanner` reuses LionFlow's Photon search, OSRM servers, `Place`, `RouteData`, MapLibre and navigation patterns. A round trip routes from the origin through the user vias and turnaround, then back to the origin. `FuelCorridor` searches the spatial index in short road blocks, projects each compatible station onto segments and retains separate directional passes. A straight-line corridor of up to 5 km, narrowed by half the user's total detour limit, is used for preselection.
+
+The app distributes candidates across the route in bands of expected fuel use and favors both proximity and attractive quotes. It verifies up to 16 projections initially and up to 24 total if needed, with two concurrent requests. Each road check uses a directed OSRM loop, with constrained snaps from the route anchor through the station and back to the same directional anchor. The two legs supply separate distance and duration estimates. Stations with no verified access or whose loop exceeds the detour limit cannot become planned stops. Verified loops are cached in memory for 24 hours. The loop model is conservative because it requires returning to the same road point.
+
+`FuelOptimizer` is a deterministic forward search over ordered, verified candidates. A label holds exact fuel remaining, elapsed stop time and a score. It tries quantities that can reach later candidates or the destination at reserve, plus a full tank. The search checks reserve on both main-road and detour movements and validates tank capacity after each purchase. At the starting station, a vehicle already below reserve can refuel before driving. Labels are pruned in 180 fuel bands. Candidate limits and pruning make this a bounded approximation and a feasible route can be missed. Infeasible edits leave the previous valid plan visible. Edit a stop to remove, lock or set a fixed quantity, or to replace it with another verified candidate.
+
+- **Economy** favors lower purchase cost, charges a reference value for detour fuel and applies a small time penalty.
+- **Balanced** weighs the same fuel terms plus EUR 0.40 per detour/refuelling minute and EUR 2 per stop.
+- **Fast** favors the lowest total detour and service time, with distance and quote as secondary terms.
+
+Refuelling time is 5 minutes per stop plus one minute per eight units purchased. Missing or stale prices receive internal comparison penalties. Only reported prices enter displayed costs. When starting fuel covers the trip and reserve, the search returns a direct plan. The dashboard values starting fuel at the median fresh quote along the route, with the filtered national median as fallback, and values subsequent consumption in purchase order. The estimated value of the fuel consumed and the cash spent at pumps are reported separately.
+
+## Coverage and extension
+
+The first provider covers Italy. France, Spain, Germany and an OpenStreetMap fallback are future providers. Brand filtering, fuel-specific weather and elevation effects, live traffic, station opening hours, ferry timetables and combined plug-in charging are outside this release. The routing service only verifies access according to its road graph. An external navigator can choose a different road or limit the number of imported via points. Each individual stop can also be opened for navigation.
+
+To add a national provider, implement `FuelStationProvider` with a stable source ID and country set. Map its records into `FuelStation` and `FuelOffer`, use source-prefixed station IDs, and define time zone, grade, units, service, update cadence and attribution at the provider boundary. Register a cache and refresh policy per source in the catalog layer. Before combining providers, deduplicate only physically equivalent stations with compatible brands and coordinates, prefer national quotes, and leave unquoted stations unquoted. Introduce explicit currency handling before comparing offers from different currency regions. The corridor and optimizer consume normalized stations independently of CSV formats.
+
+## Build and verification
+
+Use JDK 17, Android SDK 36 and Gradle 8.11.1, as in the existing CI.
+
+```sh
+gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :wear:assembleDebug
+gradle :app:assembleDebugAndroidTest
+gradle :app:connectedDebugAndroidTest
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+The final two commands require a compatible Android device or emulator. The debug build uses application ID `no.lionflow.app.debug`. For a manual pass, check the clustered map and mode filters in Italy, an itinerary with no stop, a trip needing several stops, a round trip with a via, and a reserve that makes the route infeasible. Change strategies, lock and replace stops, and verify that the station ETA, detour, fuel amount and cost recalculate. Repeat after switching vehicles and languages. Open the original charge planner with an electric car and confirm that its route and charging stops are available.

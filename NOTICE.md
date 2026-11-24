@@ -48,3 +48,4 @@ SOFTWARE.
 - Weather data from MET Norway (NLOD / CC BY 4.0)
 - Charging stations from OpenStreetMap via the Overpass API (ODbL, default), or from NOBIL (CC BY 3.0) with your own free API key
 - Trip planner: address search by Photon (komoot, data © OpenStreetMap contributors), routes by OSRM (Project OSRM / FOSSGIS servers, data © OpenStreetMap contributors)
+- Fuel station registry and prices from Ministero delle Imprese e del Made in Italy — Osservaprezzi Carburanti, reused and transformed for display and routing under the [Italian Open Data License 2.0](https://www.dati.gov.it/content/italian-open-data-license-v20). [MIMIT open data](https://www.mimit.gov.it/it/open-data/elenco-dataset/carburanti-prezzi-praticati-e-anagrafica-degli-impianti)
