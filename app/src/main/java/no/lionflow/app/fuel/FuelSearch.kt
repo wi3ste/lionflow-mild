@@ -5,6 +5,7 @@ import no.lionflow.app.plan.RouteData
 import java.time.Instant
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /** Process-local, bounded, and independent of the current tank, driver or strategy. */
 internal class FuelMemo<K, V>(private val limit: Int, private val ttlSeconds: Long) {
@@ -108,7 +109,10 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
         val range = constraints.capacity - constraints.reserve
         val bands = ranked.groupBy { (it.projection.roadFuel / maxOf(2.0, range / 3)).toInt() }.values
         val distinctBands = bands.map { it.first() }.sortedByDescending { it.potential ?: Double.NEGATIVE_INFINITY }
-        val economic = (ranked.take(3) + distinctBands + ranked).distinctBy { it.projection.key }
+        // Spread the early probes along the route. Defer adjacent alternatives to later slots
+        // instead of assuming the same road access for different forecourts.
+        val varied = ranked.take(24).distinctBy { (it.projection.roadKm * 1000).roundToInt() / 500 }
+        val economic = (varied + distinctBands + ranked).distinctBy { it.projection.key }
         val retries = retry.map(::choice).sortedByDescending { it.potential ?: Double.NEGATIVE_INFINITY }
         val nearby = FuelCorridor.shortlist(fresh, range, now, 8).map(::choice)
         // Reserve slots for usable retries and route coverage. Most slots go to likely savings.
@@ -151,7 +155,6 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
         for (choice in batch) {
             val key = choice.projection.key
             val previous = checked[key]?.check
-            if (budget.exhausted) break
             if (previous != null && (previous !is FuelCheck.Deferred || previous.retryAt > now())) continue
             val calls = budget.requests
             val hits = budget.hits
@@ -161,8 +164,8 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
                 requests += budget.requests - calls
                 cacheHits += budget.hits - hits
             }
-            if (outcome is FuelCheck.Deferred && outcome.reason == FuelCheckReason.THROTTLED &&
-                budget.requests == calls && budget.hits == hits) break
+            if (outcome is FuelCheck.Deferred && budget.requests == calls && budget.hits == hits &&
+                (outcome.reason == FuelCheckReason.THROTTLED || outcome.reason == FuelCheckReason.BUDGET)) break
             checked[key] = FuelSearchRow(choice, outcome)
             update = update.copy(
                 examined = update.examined + if (previous == null) 1 else 0,

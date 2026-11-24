@@ -45,6 +45,7 @@ internal data class FuelAccessWindow(val entry: FuelAccessPoint, val exit: FuelA
 
 internal class FuelRoadVerifier(
     private val clock: () -> Instant = Instant::now,
+    private val disk: FuelRoutingCache? = null,
     private val route: suspend (FuelAccessWindow, FuelStation, () -> Boolean) -> PlanApi.FuelAccessResult =
         { window, station, begin ->
             PlanApi.fuelAccess(window.entry.place, Place(station.title, station.location, station.lat, station.lon), window.entry.bearing,
@@ -52,10 +53,12 @@ internal class FuelRoadVerifier(
         },
 ) {
     // Fuel amounts and timing offsets belong to the current trip. The cache stores router geometry only.
-    private data class Key(val entry: Place, val inBearing: Int, val lat: Double, val lon: Double, val exit: Place, val outBearing: Int)
-    private val cache = FuelMemo<Key, PlanApi.FuelAccessResult>(1024, 24 * 3600)
+    private val cache = FuelMemo<String, PlanApi.FuelAccessResult>(1024, 24 * 3600)
     private var retryAt = Instant.MIN
     val throttled get() = clock() < retryAt
+
+    private suspend fun diskAccess(key: String, now: Instant) =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { disk?.access(key, now) }
 
     suspend fun verify(
         projection: FuelProjection, windows: List<FuelAccessWindow>, prediction: FuelConsumption, limit: Double, budget: FuelProbeBudget,
@@ -65,9 +68,9 @@ internal class FuelRoadVerifier(
         var temporary: FuelCheck.Deferred? = null
         for (window in windows) {
             val station = projection.station
-            val key = Key(window.entry.place, window.entry.bearing, station.lat, station.lon, window.exit.place, window.exit.bearing)
+            val key = FuelRoutingCache.accessKey(window, station)
             val now = clock()
-            val cached = cache.get(key, now)
+            val cached = if (disk != null) diskAccess(key, now) else cache.get(key, now)
             val answer = if (cached != null) {
                 budget.hits++
                 cached
@@ -79,7 +82,13 @@ internal class FuelRoadVerifier(
                 } catch (limited: PlanApi.FuelRoutingRateLimited) {
                     retryAt = clock().plusSeconds(limited.retrySeconds)
                     return FuelCheck.Deferred(FuelCheckReason.THROTTLED, retryAt)
-                }.also { if (it is PlanApi.FuelAccessResult.Routed || it == PlanApi.FuelAccessResult.NoRoute) cache.put(key, it, now) }
+                }.also {
+                    if (disk != null) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { disk.saveAccess(key, it, now) }
+                    } else if (it is PlanApi.FuelAccessResult.Routed || it == PlanApi.FuelAccessResult.NoRoute) {
+                        cache.put(key, it, now)
+                    }
+                }
             }
             when (answer) {
                 is PlanApi.FuelAccessResult.Routed -> {

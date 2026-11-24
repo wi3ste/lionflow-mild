@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit
 object PlanApi {
     private fun num(v: Double) = String.format(Locale.US, "%.5f", v)
 
+    internal fun fuelCoordinate(place: Place) = "${num(place.lon)},${num(place.lat)}"
+
     /** Address search while typing (Photon). Results near [lat]/[lon] come first. */
     suspend fun search(q: String, lat: Double?, lon: Double?, lang: String): List<Place> {
         val url = "https://photon.komoot.io/api/".toHttpUrl().newBuilder()
@@ -260,9 +262,9 @@ object PlanApi {
         anchor: Place, station: Place, bearing: Int, rejoin: Place, rejoinBearing: Int,
         beginRequest: () -> Boolean,
     ): FuelAccessResult {
-        val position = "${num(anchor.lon)},${num(anchor.lat)}"
-        val waypoint = "${num(station.lon)},${num(station.lat)}"
-        val way = "$position;$waypoint;${num(rejoin.lon)},${num(rejoin.lat)}"
+        val position = fuelCoordinate(anchor)
+        val waypoint = fuelCoordinate(station)
+        val way = "$position;$waypoint;${fuelCoordinate(rejoin)}"
         val query = "overview=full&geometries=polyline6&steps=false&continue_straight=false" +
             "&bearings=$bearing,45;;$rejoinBearing,45&radiuses=35;100;35"
         var timedOut = false

@@ -16,6 +16,7 @@ import no.lionflow.app.plan.Geo
 import no.lionflow.app.plan.Place
 import no.lionflow.app.plan.PlanApi
 import no.lionflow.app.plan.RouteData
+import java.io.File
 import java.time.Instant
 import no.lionflow.app.model.Trip
 import no.lionflow.app.route.Route
@@ -126,10 +127,9 @@ internal class FuelPlanner(
     private var excluded = emptySet<String>()
     private var work: Job? = null
     private var vehicleKey: String? = null
-    private data class RouteKey(val coordinates: List<Pair<Double, Double>>)
-    private data class SearchKey(val route: RouteKey, val grade: FuelGrade, val service: FuelServiceFilter, val detour: Double)
-    private val routes = FuelMemo<RouteKey, RouteData>(6, 6 * 3600)
-    private val verifier = FuelRoadVerifier()
+    private data class SearchKey(val route: String, val grade: FuelGrade, val service: FuelServiceFilter, val detour: Double)
+    private val routingCache = FuelRoutingCache(File(app.noBackupFilesDir, "fuel-routing"))
+    private val verifier = FuelRoadVerifier(disk = routingCache)
     private data class SearchContext(
         val search: FuelStationSearch, val fuel: DoubleArray, val windows: FuelAccessWindows,
     )
@@ -302,7 +302,7 @@ internal class FuelPlanner(
         work?.cancel()
         val end = if (request.round) request.from else request.to
         val via = if (request.round) request.via + request.to else request.via
-        val routeKey = RouteKey((listOf(request.from) + via + end).map { it.lat to it.lon })
+        val routeKey = FuelRoutingCache.routeKey(listOf(request.from) + via + end)
         val key = SearchKey(routeKey, request.grade, request.service, request.maxDetour)
         val reuse = key == lastSearch
         if (!reuse) {
@@ -329,10 +329,12 @@ internal class FuelPlanner(
             }
             try {
                 val now = Instant.now()
-                val cachedRoad = routes.get(routeKey, now)
+                val cachedRoad = withContext(Dispatchers.IO) { routingCache.route(routeKey, now) }
                 var routeRequests = 0
                 val road = timed("route") {
-                    cachedRoad ?: PlanApi.fuelRoute(request.from, end, via) { routeRequests++ }.also { routes.put(routeKey, it, now) }
+                    cachedRoad ?: PlanApi.fuelRoute(request.from, end, via) { routeRequests++ }.also {
+                        withContext(Dispatchers.IO) { routingCache.saveRoute(routeKey, it, now) }
+                    }
                 }
                 val cachedSearch = context?.search?.takeIf { reuse && cachedRoad != null }
                 val cacheOnly = cachedSearch != null
