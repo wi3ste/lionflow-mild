@@ -17,7 +17,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
-      - name: Build debug APK (no signing secrets needed)
+      - name: Configure optional Fuel Trip Planner debug signing
+        if: github.ref_name == 'feature/fuel-trip-planner'
+        env:
+          FUEL_DEBUG_KEYSTORE_B64: ${{ secrets.FUEL_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$FUEL_DEBUG_KEYSTORE_B64" ]; then
+            umask 077
+            android_user_dir="${ANDROID_USER_HOME:-$HOME/.android}"
+            mkdir -p "$android_user_dir"
+            printf '%s' "$FUEL_DEBUG_KEYSTORE_B64" | base64 --decode > "$android_user_dir/debug.keystore"
+          else
+            echo 'Using the runner-generated debug certificate.'
+          fi
+      - name: Build debug APK
         run: gradle :app:assembleDebug :wear:assembleDebug --stacktrace --no-daemon
       - name: Upload Fuel Trip Planner debug APK
         if: github.ref_name == 'feature/fuel-trip-planner'
@@ -26,6 +39,9 @@ jobs:
           name: LionFlow-fuel-trip-planner-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Run Fuel Trip Planner unit tests and lint
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'feature/fuel-trip-planner'
+        run: gradle :app:testDebugUnitTest :app:lintDebug --no-daemon --continue
       - name: Allow the runner to use KVM
         if: github.event_name == 'workflow_dispatch' && github.ref_name == 'feature/fuel-trip-planner'
         run: |
