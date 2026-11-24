@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import no.lionflow.app.plan.Place
 import no.lionflow.app.plan.Planner
 import no.lionflow.app.plan.RouteData
 import org.maplibre.android.geometry.LatLngBounds
@@ -57,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -140,6 +142,10 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     }
     LaunchedEffect(fuelForm, suggestedProfile) { fuelForm.suggestProfile(suggestedProfile) }
     var fuelLayer by remember(vin, supportsFuel) { mutableStateOf(supportsFuel) }
+    val favorites by fp.favorites.stations.collectAsStateWithLifecycle()
+    var fuelLogOpen by remember(vin) { mutableStateOf(false) }
+    var nearby by remember(vin) { mutableStateOf(false) }
+    var nearbyCenter by remember(vin) { mutableStateOf<Place?>(null) }
     var selectedFuel by remember(vin) { mutableStateOf<FuelStation?>(null) }
     var fuelMap by remember { mutableStateOf<FuelMapData?>(null) }
     val catalog by fp.catalog.state.collectAsStateWithLifecycle()
@@ -327,6 +333,26 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         }
 
         AndroidView({ mapView }, Modifier.fillMaxSize())
+        if (fuelLogOpen && supportsFuel && vin.isNotBlank()) {
+            BackHandler { fuelLogOpen = false }
+            Box(Modifier.fillMaxSize().zIndex(2f).blockTouches()) {
+                FuelLogScreen(fp.log, vin, fp.grade, ui.trips, ui.tripsLoading, vm::loadTrips) { fuelLogOpen = false }
+            }
+        }
+        if (nearby && supportsFuel) {
+            BackHandler { nearby = false }
+            val rate = fp.result?.prediction?.let { prediction ->
+                val result = fp.result
+                if (result != null && result.road.totalKm > 0) result.roadFuel * 100 / result.road.totalKm / prediction.safetyFactor else null
+            } ?: 7.0
+            Box(Modifier.fillMaxSize().zIndex(2f).blockTouches()) {
+                FuelNearbyScreen(fp, p, ui, nearbyCenter, rate, priceClock, { nearby = false }) { station ->
+                    nearby = false
+                    selectedFuel = station
+                    showOnMap(station.lat, station.lon)
+                }
+            }
+        }
 
         // Top: trip search and filters, or the trip being planned
         if (!p.open && !fuelOpen) {
@@ -344,12 +370,19 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     LfIcon(LfIcons.Route, c.accentInk, 18.dp)
                 }
                 if (supportsFuel) {
-                    PrimaryButton("Plan a fuel trip", icon = LfIcons.Route) {
-                        fp.open = true
-                        fp.editing = fp.result?.plan == null
-                        fuelLayer = true
-                        selectedFuel = null
-                        if (ui.trips.isEmpty() && !ui.tripsLoading) vm.loadTrips()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PrimaryButton("Plan a fuel trip", Modifier.weight(1f), icon = LfIcons.Route) {
+                            fp.open = true
+                            fp.editing = fp.result?.plan == null
+                            fuelLayer = true
+                            selectedFuel = null
+                            if (ui.trips.isEmpty() && !ui.tripsLoading) vm.loadTrips()
+                        }
+                        SecondaryButton("Find fuel nearby", Modifier.weight(1f)) {
+                            nearbyCenter = map?.cameraPosition?.target?.let { Place("Map center", "", it.latitude, it.longitude) }
+                            nearby = true
+                            fuelLayer = true
+                        }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip("Fuel stations", fuelLayer) { fuelLayer = true; selected = null }
@@ -436,6 +469,9 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                             CompactFuelSyncStatus(catalog)
                         }
                     }
+                    if (vin.isNotBlank()) androidx.compose.material3.TextButton(onClick = { fuelLogOpen = true }) {
+                        Text("Fuel log", style = Type.small, color = c.accentInk)
+                    }
                     androidx.compose.material3.IconButton(enabled = !catalog.refreshing, onClick = { fp.refresh(force = true) }) {
                         LfIcon(LfIcons.Refresh, if (catalog.refreshing) c.muted else c.accentInk, 20.dp, L10n.tr("Refresh fuel stations"))
                     }
@@ -456,7 +492,8 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             val sel = selected
             val station = selectedFuel?.takeIf { fuelVisible }
             if (station != null) {
-                FuelStationDetails(station, station.offer(fp.grade, fp.service, priceClock), priceClock) { selectedFuel = null }
+                FuelStationDetails(station, station.offer(fp.grade, fp.service, priceClock), priceClock,
+                    station.id in favorites, { fp.favorites.toggle(station) }) { selectedFuel = null }
             } else if (sel != null) {
                 Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -572,7 +609,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 Column(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars)
                     .padding(start = if (wide) 404.dp else 12.dp, end = 64.dp, top = 12.dp)
                     .widthIn(max = 420.dp).fillMaxWidth().shadow(8.dp, shape).clip(shape).background(c.card).padding(12.dp)) {
-                    FuelStationDetails(station, offer, priceClock) { selectedFuel = null }
+                    FuelStationDetails(station, offer, priceClock, station.id in favorites, { fp.favorites.toggle(station) }) { selectedFuel = null }
                 }
             }
         }
@@ -592,7 +629,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
 }
 
 @Composable
-private fun PlanHeader(back: Boolean, title: String = "Plan a trip", onClose: () -> Unit) {
+internal fun PlanHeader(back: Boolean, title: String = "Plan a trip", onClose: () -> Unit) {
     val c = LocalLf.current
     Row(Modifier.fillMaxWidth().padding(start = if (back) 6.dp else 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back) LfIcon(LfIcons.Back, c.text, 22.dp, "Back", Modifier.clip(CircleShape).clickable(onClick = onClose).padding(10.dp))

@@ -18,6 +18,8 @@ class LionFlowApp : Application() {
     lateinit var secure: SecureStore
     lateinit var api: StellantisApi
     lateinit var remote: RemoteControl
+    internal val fuelLog by lazy { no.lionflow.app.fuel.FuelLog(this) }
+    internal val fuelFavorites by lazy { no.lionflow.app.fuel.FuelFavorites(this) }
 
     override fun onCreate() {
         super.onCreate()

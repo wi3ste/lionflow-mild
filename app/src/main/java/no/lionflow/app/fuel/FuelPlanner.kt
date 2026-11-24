@@ -112,6 +112,8 @@ internal class FuelPlanner(
     private val history: () -> FuelHistoryInput,
 ) {
     val catalog = FuelCatalog.get(app)
+    val favorites = app.fuelFavorites
+    val log = app.fuelLog
     var open by mutableStateOf(false)
     var editing by mutableStateOf(true)
     var grade by mutableStateOf(FuelGrade.PETROL)
@@ -143,6 +145,17 @@ internal class FuelPlanner(
         private set
     var backtest by mutableStateOf<List<FuelBacktest>?>(null)
         private set
+
+    suspend fun stationRoundTrip(origin: Place, station: FuelStation): Double {
+        val via = Place(station.title, station.location, station.lat, station.lon)
+        val key = FuelRoutingCache.routeKey(listOf(origin, via, origin))
+        val now = Instant.now()
+        val cached = withContext(Dispatchers.IO) { routingCache.route(key, now) }
+        val route = cached ?: PlanApi.fuelRoute(origin, origin, listOf(via)) {}.also {
+            withContext(Dispatchers.IO) { routingCache.saveRoute(key, it, now) }
+        }
+        return route.totalKm
+    }
 
     fun selectStrategy(strategy: FuelStrategy) {
         val current = result ?: return

@@ -47,6 +47,8 @@ data class VehicleStatus(
     val fuelPct: Double? = null,
     val fuelRangeKm: Double? = null,
     val isMildHybrid: Boolean = false,
+    val fuelAtMillis: Long? = null,
+    val positionAtMillis: Long? = null,
 ) {
     val isCharging: Boolean get() = chargingStatus == "InProgress"
 
@@ -107,7 +109,9 @@ data class VehicleStatus(
             val lockedStates = doors?.optJSONArray("lockedStates")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
             val openings = doors?.optJSONArray("opening")?.objects().orEmpty()
                 .filter { it.optString("state") == "Open" }.map { it.optString("identifier") }
-            val coords = j.obj("lastPosition", "geometry")?.optJSONArray("coordinates")
+            val position = j.optJSONObject("lastPosition")
+            val coords = position?.obj("geometry")?.optJSONArray("coordinates")
+            val positionProperties = position?.optJSONObject("properties")
             val ac = j.obj("preconditioning", "airConditioning")
             val programs = ac?.optJSONArray("programs")?.objects().orEmpty().mapNotNull { p ->
                 val start = parsePt(p.optString("start")) ?: return@mapNotNull null
@@ -133,6 +137,8 @@ data class VehicleStatus(
                 isMildHybrid = mildHybrid,
                 fuelPct = fuel?.num("level"),
                 fuelRangeKm = fuel?.num("autonomy"),
+                fuelAtMillis = parseIso(fuel?.str("updatedAt")),
+                positionAtMillis = parseIso(positionProperties?.str("updatedAt") ?: positionProperties?.str("createdAt")),
                 plugged = charging?.optBoolean("plugged") ?: false,
                 chargingStatus = charging?.str("status"),
                 chargingMode = charging?.str("chargingMode"),

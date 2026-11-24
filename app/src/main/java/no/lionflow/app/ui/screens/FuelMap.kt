@@ -189,7 +189,7 @@ internal fun fuelAt(map: MapLibreMap, point: PointF, lookup: (String) -> FuelSta
 }
 
 @Composable
-internal fun FuelStationDetails(station: FuelStation, offer: FuelOffer?, now: Instant, close: () -> Unit) {
+internal fun FuelStationDetails(station: FuelStation, offer: FuelOffer?, now: Instant, favorite: Boolean, toggleFavorite: () -> Unit, close: () -> Unit) {
     val c = LocalLf.current
     val platform = LocalPlatform.current
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -204,8 +204,11 @@ internal fun FuelStationDetails(station: FuelStation, offer: FuelOffer?, now: In
             androidx.compose.material3.Text(fuelDate(it), style = Type.tiny, color = c.muted)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton("Navigate", Modifier.weight(1f)) { platform.openUrl("google.navigation:q=${station.lat},${station.lon}") }
+            PrimaryButton("Navigate", Modifier.weight(1f)) { platform.openUrl(station.navigationUrl()) }
             SecondaryButton("Close", onClick = close)
+        }
+        androidx.compose.material3.TextButton(onClick = toggleFavorite) {
+            Text(if (favorite) "Remove favorite" else "Add favorite", color = c.accentInk)
         }
     }
 }

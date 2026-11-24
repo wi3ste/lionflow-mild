@@ -5,6 +5,7 @@ import androidx.compose.runtime.setValue
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
+import no.lionflow.app.fuel.observeRefuel
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
@@ -657,7 +658,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // Reload cars can complete while the status request is in flight.
                 val selected = _ui.value.vehicle ?: v
                 if (profile != api.profile || selected.vin != v.vin) return@launch
-                val st = applyHolds(no.lionflow.app.model.ChargePower.record(api.parseStatus(selected, raw, maint)))
+                val measured = api.parseStatus(selected, raw, maint)
+                app().observeRefuel(selected, measured)
+                val st = applyHolds(no.lionflow.app.model.ChargePower.record(measured))
                 if (settings.value.smartMode.isNotEmpty() && !programsPending()) try { no.lionflow.app.work.SmartSchedule.syncFromCar(app(), st.programs) } catch (_: Exception) {}
                 val now = System.currentTimeMillis()
                 settings.lastRefresh = now
