@@ -986,191 +986,195 @@ Arrive {0}	Arrivée {0}	Ankunft {0}	Llegada {0}	Fremme {0}
 About {0} % when you arrive	Environ {0} % à l'arrivée	Etwa {0} % bei Ankunft	Unos {0} % al llegar	Ca. {0} % når du er fremme
 Charge {0} min · {1} % → {2} %	Recharge {0} min · {1} % → {2} %	{0} min laden · {1} % → {2} %	Cargar {0} min · {1} % → {2} %	Lad {0} min · {1} % → {2} %
 Try again	Réessayer	Erneut versuchen	Reintentar	Prøv igjen
-Petrol					Benzina
-Diesel					Diesel
-LPG					GPL
-CNG					Metano
-Self-service					Self-service
-Attended					Servito
-Any service					Qualsiasi servizio
-Combustion					Termica
-Mild hybrid					Mild hybrid
-Full hybrid					Full hybrid
-Plug-in hybrid (fuel only)					Ibrida plug-in (solo carburante)
-Manual consumption					Consumo personalizzato
-Typical consumption					Consumo tipico
-Economy					Economica
-Balanced					Bilanciata
-Fast					Rapida
-Fuel trip planner					Planner viaggi a carburante
-Plan a fuel trip					Pianifica un viaggio a carburante
-Plan fuel trip					Calcola viaggio a carburante
-Fuel stations					Distributori
-Charging stations					Colonnine di ricarica
-Fuel station					Distributore
-Refresh fuel stations					Aggiorna distributori
-Updating fuel stations…					Aggiornamento dei distributori…
-Last fuel sync					Ultimo aggiornamento dei distributori
-Fuel station update failed. Tap to retry.					Aggiornamento dei distributori non riuscito. Tocca per riprovare.
-Update failed. Showing cached fuel stations.					Aggiornamento non riuscito. Sono visibili i distributori già scaricati.
-No fuel stations available					Nessun distributore disponibile
-Tap a fuel station for details					Tocca un distributore per vedere i dettagli
-Fuel data: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0					Dati carburante del Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0
-Routing the fuel trip…					Calcolo dell’itinerario…
-Checking fuel stations…					Verifica dei distributori…
-Recalculating fuel stops…					Ricalcolo delle soste…
-Fuel data unavailable. Refresh stations and try again.					Dati carburante non disponibili. Aggiorna i distributori e riprova.
-No compatible fuel stations found along this route.					Nessun distributore compatibile trovato lungo questo itinerario.
-No feasible fuel plan found. Check your fuel, reserve and detour limit.					Nessun piano fattibile trovato. Controlla carburante iniziale, riserva e deviazione massima.
-Could not calculate the road route. Check your connection and try again.					Impossibile calcolare il percorso stradale. Controlla la connessione e riprova.
-That change would make the fuel plan infeasible.					Con questa modifica il piano non rispetterebbe i vincoli di autonomia.
-Check departure, tank capacity, starting fuel and limits.					Controlla partenza, capacità del serbatoio, carburante iniziale e limiti.
-Petrol or diesel range only					Solo autonomia a benzina o diesel
-One way					Sola andata
-Leave now					Parti ora
-Tank capacity					Capacità del serbatoio
-Starting fuel					Carburante iniziale
-Starting level from the vehicle					Ultimo livello rilevato dal veicolo
-Starting level estimated from reported range					Livello iniziale stimato dall’autonomia dichiarata
-Consumption override					Consumo personalizzato
-Minimum reserve					Riserva minima
-Consumption safety margin					Margine di sicurezza sul consumo
-Maximum detour per stop					Deviazione massima per sosta
-Fuel trip					Viaggio a carburante
-Total distance					Distanza totale
-Driving time					Tempo di guida
-Estimated total time					Tempo totale stimato
-Estimated average consumption					Consumo medio stimato
-Fuel consumed					Carburante consumato
-Estimated value of fuel consumed					Valore stimato del carburante consumato
-Fuel to buy					Carburante da acquistare
-Estimated spend on refuelling					Spesa stimata per i rifornimenti
-Fuel stops					Soste per rifornimento
-Extra distance					Distanza aggiuntiva
-Extra time for fuel stops					Tempo aggiuntivo per le soste
-Fuel at arrival					Carburante all’arrivo
-No refuelling needed					Nessun rifornimento necessario
-Plan based on a limited set of road-verified stations.					Piano basato su un numero limitato di distributori verificati su strada.
-Position along the trip					Posizione lungo il viaggio
-Estimated arrival					Arrivo previsto
-Buy					Acquista
-Fuel after refuelling					Carburante alla ripartenza
-Unit price					Prezzo unitario
-Refuelling cost					Costo del rifornimento
-Road detour					Deviazione su strada
-Price reported					Prezzo comunicato il
-Edit fuel stop					Modifica sosta
-Edit trip					Modifica viaggio
-Reset fuel stops					Ripristina le soste
-Fixed purchase (optional)					Quantità fissa (facoltativa)
-Replace with a verified station					Sostituisci con un distributore verificato
-Lock fuel stop					Blocca sosta
-Price unavailable					Prezzo non disponibile
-Price may be outdated					Prezzo potenzialmente non aggiornato
-Type a place or address					Digita un luogo o un indirizzo
-Save vehicle fuel settings					Salva impostazioni carburante del veicolo
-Vehicle fuel settings saved					Impostazioni carburante del veicolo salvate
-Compare fuel strategies					Confronta le strategie
-Same solution					Stessa soluzione
-Savings vs fastest (fuel purchases)					Risparmio rispetto alla Rapida (rifornimenti)
-Selected strategy					Strategia selezionata
-Select strategy					Seleziona strategia
-Station kept by your edit					Distributore mantenuto dalla modifica manuale
-Part of the lowest estimated refuelling cost found					Fa parte del piano con la minore spesa stimata per i rifornimenti
-Part of the fastest feasible plan found					Fa parte del piano fattibile più rapido trovato
-Part of the best cost and time trade-off found					Fa parte del piano con il miglior compromesso tra spesa e tempo
-Checking feasible alternatives…					Verifica delle alternative fattibili…
-No feasible alternatives among verified stations					Nessuna alternativa fattibile tra i distributori verificati
-Change in refuelling cost					Differenza nella spesa per i rifornimenti
-Change in trip time					Differenza nella durata del viaggio
-Checking fuel stations… {0}/{1}					Verifica dei distributori… {0}/{1}
-Recorded trips on this route					Viaggi registrati su questo itinerario
-Comparable trips					Viaggi simili
-Consumption is estimated after routing.					Il consumo viene stimato dopo il calcolo del percorso.
-Verified plan · still optimizing					Piano verificato · ottimizzazione in corso
-Keep this plan					Mantieni questo piano
-Cancel calculation					Annulla il calcolo
-The cached stations cannot cover the new fuel settings.					I distributori già verificati sono insufficienti per i nuovi parametri.
-Same solution in verified stations					Stessa soluzione tra i distributori verificati
-Show details					Mostra dettagli
-Hide details					Nascondi dettagli
-Selected: {0}					Selezionata: {0}
-Expected average consumption					Consumo medio atteso
-Prediction source					Fonte della previsione
-Prudent fuel estimate for reserve					Consumo prudenziale per la riserva
-Historical trips used					Viaggi storici utilizzati
-Historical distance					Distanza storica totale
-Hide history					Nascondi storico
-Show history					Mostra storico
-Hide diagnostics					Nascondi diagnostica
-Show diagnostics					Mostra diagnostica
-Stations in corridor					Distributori nel corridoio
-Stations verified / examined					Distributori verificati / esaminati
-Fresh prices at verified stations					Prezzi recenti tra le stazioni verificate
-Verified quote range					Intervallo dei prezzi verificati
-Running local backtest…					Validazione sullo storico in corso…
-Insufficient validated history for backtesting					Storico validato insufficiente per il confronto
-New MAE / MAPE / bias					Nuovo MAE / MAPE / bias
-Previous MAE / MAPE / bias					Precedente MAE / MAPE / bias
-Short trips					Viaggi brevi
-Medium trips					Viaggi medi
-Long trips					Viaggi lunghi
-Check more stations					Verifica altri distributori
-Limited historical support					Previsione basata su pochi viaggi
-Waiting briefly for driving history…					Attesa breve dello storico dei viaggi…
-Recalculate with updated history					Ricalcola con lo storico aggiornato
-Checking additional stations…					Verifica di altri distributori…
-Waiting for the router retry window					Il servizio di routing ha chiesto di attendere prima di riprovare
-No more stations in the corridor					Nessun altro distributore da verificare nel corridoio
-Better fuel options found					Trovate soluzioni di rifornimento migliori
-No better plan found in this group					Nessun piano migliore in questo gruppo
-Could not finish checking additional stations					Impossibile completare la verifica degli altri distributori
-Additional station check cancelled					Verifica di altri distributori annullata
-Additional stations checked					Nuovi distributori esaminati
-Stations accepted					Distributori verificati con successo
-Stations retried					Distributori ritentati
-Stations remaining to examine					Candidati ancora da esaminare
-Itinerary routing requests					Richieste di routing per l'itinerario
-Cached itinerary route responses					Itinerari recuperati dalla cache
-Station routing requests					Richieste di routing per i distributori
-Cached station route responses					Risposte di routing dei distributori recuperate dalla cache
-Corridor quotes (min / median / max)					Prezzi nel corridoio (min / mediana / max)
-Shortlisted quotes (min / median / max)					Prezzi dei preselezionati (min / mediana / max)
-Verified quotes (min / median / max)					Prezzi dei verificati (min / mediana / max)
-Candidate verification details					Dettagli sulla verifica dei candidati
-Straight-line distance					Distanza in linea d'aria
-Added road distance					Distanza stradale aggiuntiva
-Verification outcomes					Esiti della verifica
-Promising stations skipped					Distributori promettenti esclusi
-Road verified					Accesso stradale verificato
-No route in checked windows					Nessun accesso attraverso i punti provati
-Exceeds added-distance limit					Supera il limite di distanza aggiuntiva
-Inconsistent station snap					Posizione del distributore incoerente con il percorso
-Router unavailable					Servizio di routing indisponibile
-Router timeout					Tempo di risposta del routing scaduto
-Router rate limit					Limite di richieste del servizio di routing
-Verification budget reached					Raggiunto il limite di verifiche per questo gruppo
-Required fields marked with *					I campi obbligatori sono contrassegnati con *
-From *					Partenza *
-Where to? *					Destinazione *
-Optional stop					Tappa facoltativa
-Select a departure point					Seleziona il punto di partenza
-Select a destination					Seleziona una destinazione
-Capacity from vehicle specifications					Capacità dalla scheda del veicolo
-Enter a tank capacity between 1 and 300.					Inserisci una capacità compresa tra 1 e 300.
-Enter a starting level from 0 to 100%.					Inserisci un livello iniziale tra 0 e 100%.
-Enter an amount within the tank capacity.					Inserisci una quantità entro la capacità del serbatoio.
-Show optional trip settings					Mostra le opzioni facoltative
-Hide optional trip settings					Nascondi le opzioni facoltative
-Enter a consumption between 0.5 and 40.					Inserisci un consumo compreso tra 0,5 e 40.
-Enter a reserve from 0 to 90%.					Inserisci una riserva tra 0 e 90%.
-Enter a margin from 0 to 50%.					Inserisci un margine tra 0 e 50%.
-Enter a detour between 0.5 and 30 km.					Inserisci una deviazione compresa tra 0,5 e 30 km.
-Default: {0}					Valore predefinito: {0}
-Center map on your car					Centra la mappa sulla tua auto
-Showing cached fuel stations					Distributori da cache
-Fuel station update failed					Aggiornamento distributori non riuscito
-Stations updated {0}					Distributori aggiornati il {0}
-Use vehicle tank capacity					Usa la capacità da scheda veicolo
-Use vehicle fuel level					Usa il livello del veicolo
-Use estimated fuel level					Usa il livello stimato
+Petrol	Essence	Benzin	Gasolina	Bensin	Benzina
+Diesel	Gazole	Diesel	Diésel	Diesel	Diesel
+LPG	GPL	Autogas (LPG)	GLP	LPG	GPL
+CNG	GNV	Erdgas (CNG)	GNC	CNG	Metano
+Self-service	Libre-service	Selbstbedienung	Autoservicio	Selvbetjening	Self-service
+Attended	Avec service	Mit Bedienung	Atendido	Betjent	Servito
+Any service	Tous les services	Beliebige Bedienung	Cualquier servicio	Alle betjeningstyper	Qualsiasi servizio
+Combustion	Thermique	Verbrenner	Combustión	Forbrenningsmotor	Termica
+Mild hybrid	Hybride léger	Mildhybrid	Híbrido ligero	Mildhybrid	Mild hybrid
+Full hybrid	Hybride intégral	Vollhybrid	Híbrido convencional	Fullhybrid	Full hybrid
+Plug-in hybrid (fuel only)	Hybride rechargeable (carburant uniquement)	Plug-in-Hybrid (nur Kraftstoff)	Híbrido enchufable (solo combustible)	Ladbar hybrid (kun drivstoff)	Ibrida plug-in (solo carburante)
+Manual consumption	Consommation saisie	Manueller Verbrauch	Consumo manual	Manuelt forbruk	Consumo personalizzato
+Typical consumption	Consommation type	Typischer Verbrauch	Consumo típico	Typisk forbruk	Consumo tipico
+Economy	Économique	Sparsam	Económica	Økonomisk	Economica
+Balanced	Équilibré	Ausgewogen	Equilibrada	Balansert	Bilanciata
+Fast	Rapide	Schnell	Rápida	Rask	Rapida
+Fuel trip planner	Planificateur de trajets avec ravitaillement	Routenplaner mit Tankstopps	Planificador de viajes con repostaje	Ruteplanlegger med drivstoffstopp	Planner viaggi a carburante
+Plan a fuel trip	Planifier un trajet avec ravitaillement	Fahrt mit Tankstopps planen	Planificar un viaje con repostaje	Planlegg en tur med drivstoffstopp	Pianifica un viaggio a carburante
+Plan fuel trip	Calculer le trajet avec ravitaillement	Route mit Tankstopps berechnen	Calcular viaje con repostaje	Beregn rute med drivstoffstopp	Calcola viaggio a carburante
+Fuel stations	Stations-service	Tankstellen	Gasolineras	Bensinstasjoner	Distributori
+Charging stations	Bornes de recharge	Ladestationen	Estaciones de carga	Ladestasjoner	Colonnine di ricarica
+Fuel station	Station-service	Tankstelle	Gasolinera	Bensinstasjon	Distributore
+Refresh fuel stations	Actualiser les stations-service	Tankstellen aktualisieren	Actualizar gasolineras	Oppdater bensinstasjoner	Aggiorna distributori
+Updating fuel stations…	Actualisation des stations-service…	Tankstellen werden aktualisiert…	Actualizando gasolineras…	Oppdaterer bensinstasjoner…	Aggiornamento dei distributori…
+Last fuel sync	Dernière mise à jour des stations-service	Letzte Tankstellen-Aktualisierung	Última actualización de gasolineras	Sist oppdatert for bensinstasjoner	Ultimo aggiornamento dei distributori
+Fuel station update failed. Tap to retry.	Échec de la mise à jour des stations-service. Touchez pour réessayer.	Tankstellen konnten nicht aktualisiert werden. Tippen zum Wiederholen.	Error al actualizar las gasolineras. Toca para reintentar.	Kunne ikke oppdatere bensinstasjonene. Trykk for å prøve igjen.	Aggiornamento dei distributori non riuscito. Tocca per riprovare.
+Update failed. Showing cached fuel stations.	Échec de la mise à jour. Affichage des stations-service enregistrées.	Aktualisierung fehlgeschlagen. Gespeicherte Tankstellen werden angezeigt.	Error al actualizar. Se muestran las gasolineras guardadas.	Oppdateringen mislyktes. Viser lagrede bensinstasjoner.	Aggiornamento non riuscito. Sono visibili i distributori già scaricati.
+No fuel stations available	Aucune station-service disponible	Keine Tankstellen verfügbar	No hay gasolineras disponibles	Ingen bensinstasjoner tilgjengelige	Nessun distributore disponibile
+Tap a fuel station for details	Touchez une station-service pour voir les détails	Für Details auf eine Tankstelle tippen	Toca una gasolinera para ver los detalles	Trykk på en bensinstasjon for å se detaljer	Tocca un distributore per vedere i dettagli
+Fuel data: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0	Données carburant : Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0	Kraftstoffdaten: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0	Datos de combustible: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0	Drivstoffdata: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0	Dati carburante del Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0
+Routing the fuel trip…	Calcul de l’itinéraire…	Route wird berechnet…	Calculando la ruta…	Beregner ruten…	Calcolo dell’itinerario…
+Checking fuel stations…	Vérification des stations-service…	Tankstellen werden geprüft…	Comprobando gasolineras…	Kontrollerer bensinstasjoner…	Verifica dei distributori…
+Recalculating fuel stops…	Recalcul des arrêts carburant…	Tankstopps werden neu berechnet…	Recalculando las paradas para repostar…	Beregner drivstoffstopp på nytt…	Ricalcolo delle soste…
+Fuel data unavailable. Refresh stations and try again.	Données carburant indisponibles. Actualisez les stations-service et réessayez.	Kraftstoffdaten fehlen. Tankstellen aktualisieren und erneut versuchen.	Datos de combustible no disponibles. Actualiza las gasolineras y vuelve a intentarlo.	Drivstoffdata er utilgjengelige. Oppdater bensinstasjonene og prøv igjen.	Dati carburante non disponibili. Aggiorna i distributori e riprova.
+No compatible fuel stations found along this route.	Aucune station-service compatible sur cet itinéraire.	Keine passenden Tankstellen entlang dieser Route gefunden.	No se encontraron gasolineras compatibles en esta ruta.	Fant ingen egnede bensinstasjoner langs denne ruten.	Nessun distributore compatibile trovato lungo questo itinerario.
+No feasible fuel plan found. Check your fuel, reserve and detour limit.	Aucun plan réalisable. Vérifiez le carburant, la réserve et la limite de détour.	Kein machbarer Tankplan gefunden. Kraftstoffstand, Reserve und Umweggrenze prüfen.	No hay un plan viable. Revisa el combustible, la reserva y el límite de desvío.	Fant ingen gjennomførbar plan. Kontroller drivstoff, reserve og grensen for omvei.	Nessun piano fattibile trovato. Controlla carburante iniziale, riserva e deviazione massima.
+Could not calculate the road route. Check your connection and try again.	Calcul de l’itinéraire impossible. Vérifiez la connexion et réessayez.	Route konnte nicht berechnet werden. Verbindung prüfen und erneut versuchen.	No se pudo calcular la ruta. Comprueba la conexión y vuelve a intentarlo.	Kunne ikke beregne ruten. Kontroller forbindelsen og prøv igjen.	Impossibile calcolare il percorso stradale. Controlla la connessione e riprova.
+That change would make the fuel plan infeasible.	Ce changement rendrait le plan de ravitaillement irréalisable.	Mit dieser Änderung wäre der Tankplan nicht machbar.	Ese cambio haría inviable el plan de repostaje.	Denne endringen gjør drivstoffplanen umulig å gjennomføre.	Con questa modifica il piano non rispetterebbe i vincoli di autonomia.
+Check departure, tank capacity, starting fuel and limits.	Vérifiez le départ, la capacité du réservoir, le carburant initial et les limites.	Start, Tankinhalt, Anfangsfüllstand und Grenzwerte prüfen.	Revisa la salida, la capacidad del depósito, el combustible inicial y los límites.	Kontroller avreise, tankkapasitet, drivstoff ved start og grenser.	Controlla partenza, capacità del serbatoio, carburante iniziale e limiti.
+Petrol or diesel range only	Autonomie essence ou gazole uniquement	Nur Benzin- oder Dieselreichweite	Solo autonomía con gasolina o diésel	Kun rekkevidde med bensin eller diesel	Solo autonomia a benzina o diesel
+One way	Aller simple	Einfache Fahrt	Solo ida	Én vei	Sola andata
+Leave now	Partir maintenant	Jetzt abfahren	Salir ahora	Dra nå	Parti ora
+Tank capacity	Capacité du réservoir	Tankkapazität	Capacidad del depósito	Tankkapasitet	Capacità del serbatoio
+Starting fuel	Carburant au départ	Kraftstoff bei Abfahrt	Combustible inicial	Drivstoff ved start	Carburante iniziale
+Starting level from the vehicle	Dernier niveau transmis par le véhicule	Letzter vom Fahrzeug gemeldeter Füllstand	Último nivel comunicado por el vehículo	Siste nivå rapportert av bilen	Ultimo livello rilevato dal veicolo
+Starting level estimated from reported range	Niveau initial estimé d’après l’autonomie indiquée	Anfangsfüllstand aus gemeldeter Reichweite geschätzt	Nivel inicial estimado a partir de la autonomía indicada	Startnivå anslått fra oppgitt rekkevidde	Livello iniziale stimato dall’autonomia dichiarata
+Consumption override	Consommation personnalisée	Eigener Verbrauchswert	Consumo personalizado	Egendefinert forbruk	Consumo personalizzato
+Minimum reserve	Réserve minimale	Mindestreserve	Reserva mínima	Minstereserve	Riserva minima
+Consumption safety margin	Marge de sécurité sur la consommation	Sicherheitszuschlag für den Verbrauch	Margen de seguridad del consumo	Sikkerhetsmargin for forbruk	Margine di sicurezza sul consumo
+Maximum detour per stop	Détour maximal par arrêt	Maximaler Umweg je Stopp	Desvío máximo por parada	Maksimal omvei per stopp	Deviazione massima per sosta
+Fuel trip	Trajet avec ravitaillement	Fahrt mit Tankstopps	Viaje con repostaje	Tur med drivstoffstopp	Viaggio a carburante
+Total distance	Distance totale	Gesamtstrecke	Distancia total	Total avstand	Distanza totale
+Driving time	Temps de conduite	Fahrzeit	Tiempo de conducción	Kjøretid	Tempo di guida
+Estimated total time	Durée totale estimée	Geschätzte Gesamtdauer	Tiempo total estimado	Anslått totaltid	Tempo totale stimato
+Estimated average consumption	Consommation moyenne estimée	Geschätzter Durchschnittsverbrauch	Consumo medio estimado	Anslått gjennomsnittsforbruk	Consumo medio stimato
+Fuel consumed	Carburant consommé	Verbrauchter Kraftstoff	Combustible consumido	Brukt drivstoff	Carburante consumato
+Estimated value of fuel consumed	Valeur estimée du carburant consommé	Geschätzter Wert des verbrauchten Kraftstoffs	Valor estimado del combustible consumido	Anslått verdi av brukt drivstoff	Valore stimato del carburante consumato
+Fuel to buy	Carburant à acheter	Zu tankende Menge	Combustible por repostar	Drivstoff å fylle	Carburante da acquistare
+Estimated spend on refuelling	Dépenses estimées à la pompe	Geschätzte Tankausgaben	Gasto estimado en repostaje	Anslått beløp ved pumpen	Spesa stimata per i rifornimenti
+Fuel stops	Arrêts carburant	Tankstopps	Paradas para repostar	Drivstoffstopp	Soste per rifornimento
+Extra distance	Distance supplémentaire	Zusätzliche Strecke	Distancia adicional	Ekstra avstand	Distanza aggiuntiva
+Extra time for fuel stops	Temps supplémentaire pour les arrêts carburant	Zusätzliche Zeit für Tankstopps	Tiempo adicional por las paradas para repostar	Ekstra tid til drivstoffstopp	Tempo aggiuntivo per le soste
+Fuel at arrival	Carburant à l’arrivée	Kraftstoff bei Ankunft	Combustible a la llegada	Drivstoff ved ankomst	Carburante all’arrivo
+No refuelling needed	Aucun ravitaillement nécessaire	Kein Tankstopp nötig	No es necesario repostar	Ingen fylling nødvendig	Nessun rifornimento necessario
+Plan based on a limited set of road-verified stations.	Plan établi à partir d’un nombre limité de stations dont l’accès est vérifié.	Der Plan berücksichtigt eine begrenzte Zahl von Tankstellen mit geprüfter Zufahrt.	El plan se basa en un conjunto limitado de gasolineras con acceso verificado.	Planen bygger på et begrenset utvalg bensinstasjoner med kontrollert veiadkomst.	Piano basato su un numero limitato di distributori verificati su strada.
+Position along the trip	Position sur l’itinéraire	Position auf der Route	Posición en la ruta	Posisjon langs ruten	Posizione lungo il viaggio
+Estimated arrival	Arrivée estimée	Voraussichtliche Ankunft	Llegada estimada	Anslått ankomst	Arrivo previsto
+Buy	Quantité à acheter	Tanken	Repostar	Fyll	Acquista
+Fuel after refuelling	Carburant après ravitaillement	Kraftstoff nach dem Tanken	Combustible tras repostar	Drivstoff etter fylling	Carburante alla ripartenza
+Unit price	Prix unitaire	Einheitspreis	Precio unitario	Enhetspris	Prezzo unitario
+Refuelling cost	Coût du ravitaillement	Tankkosten	Coste del repostaje	Kostnad ved fylling	Costo del rifornimento
+Road detour	Détour routier	Umweg	Desvío por carretera	Omvei	Deviazione su strada
+Price reported	Prix relevé le	Preis gemeldet am	Precio comunicado	Pris meldt	Prezzo comunicato il
+Edit fuel stop	Modifier l’arrêt carburant	Tankstopp bearbeiten	Editar parada para repostar	Rediger drivstoffstopp	Modifica sosta
+Edit trip	Modifier le trajet	Fahrt bearbeiten	Editar viaje	Rediger tur	Modifica viaggio
+Reset fuel stops	Réinitialiser les arrêts carburant	Tankstopps zurücksetzen	Restablecer paradas para repostar	Tilbakestill drivstoffstopp	Ripristina le soste
+Fixed purchase (optional)	Quantité fixe à acheter (facultatif)	Feste Tankmenge (optional)	Cantidad fija de repostaje (opcional)	Fast påfyllingsmengde (valgfritt)	Quantità fissa (facoltativa)
+Replace with a verified station	Remplacer par une station vérifiée	Durch eine geprüfte Tankstelle ersetzen	Sustituir por una gasolinera verificada	Bytt til en kontrollert bensinstasjon	Sostituisci con un distributore verificato
+Lock fuel stop	Verrouiller l’arrêt carburant	Tankstopp fixieren	Fijar parada para repostar	Lås drivstoffstopp	Blocca sosta
+Price unavailable	Prix indisponible	Preis nicht verfügbar	Precio no disponible	Pris utilgjengelig	Prezzo non disponibile
+Price may be outdated	Prix potentiellement obsolète	Preis möglicherweise veraltet	El precio puede estar desactualizado	Prisen kan være utdatert	Prezzo potenzialmente non aggiornato
+Type a place or address	Saisissez un lieu ou une adresse	Ort oder Adresse eingeben	Introduce un lugar o una dirección	Skriv inn et sted eller en adresse	Digita un luogo o un indirizzo
+Save vehicle fuel settings	Enregistrer les réglages de carburant du véhicule	Kraftstoffeinstellungen für das Fahrzeug speichern	Guardar ajustes de combustible del vehículo	Lagre bilens drivstoffinnstillinger	Salva impostazioni carburante del veicolo
+Vehicle fuel settings saved	Réglages de carburant du véhicule enregistrés	Kraftstoffeinstellungen für das Fahrzeug gespeichert	Ajustes de combustible del vehículo guardados	Bilens drivstoffinnstillinger er lagret	Impostazioni carburante del veicolo salvate
+Compare fuel strategies	Comparer les stratégies de ravitaillement	Tankstrategien vergleichen	Comparar estrategias de repostaje	Sammenlign drivstoffstrategier	Confronta le strategie
+Same solution	Même solution	Gleiche Lösung	Misma solución	Samme løsning	Stessa soluzione
+Savings vs fastest (fuel purchases)	Économie à la pompe par rapport au trajet le plus rapide	Ersparnis beim Tanken gegenüber der schnellsten Route	Ahorro en repostaje frente a la opción más rápida	Spart ved pumpen mot raskeste alternativ	Risparmio rispetto alla Rapida (rifornimenti)
+Selected strategy	Stratégie choisie	Gewählte Strategie	Estrategia seleccionada	Valgt strategi	Strategia selezionata
+Select strategy	Choisir une stratégie	Strategie auswählen	Seleccionar estrategia	Velg strategi	Seleziona strategia
+Station kept by your edit	Station conservée à votre demande	Tankstelle durch Ihre Änderung beibehalten	Gasolinera conservada por tu cambio	Bensinstasjonen beholdes etter endringen din	Distributore mantenuto dalla modifica manuale
+Part of the lowest estimated refuelling cost found	Fait partie du plan au coût de ravitaillement estimé le plus faible	Teil des Plans mit den niedrigsten geschätzten Tankkosten	Forma parte del plan con el menor coste de repostaje estimado	Del av planen med lavest anslått fyllekostnad	Fa parte del piano con la minore spesa stimata per i rifornimenti
+Part of the fastest feasible plan found	Fait partie du plan réalisable le plus rapide	Teil des schnellsten machbaren Plans	Forma parte del plan viable más rápido	Del av den raskeste gjennomførbare planen	Fa parte del piano fattibile più rapido trovato
+Part of the best cost and time trade-off found	Fait partie du meilleur compromis entre coût et durée	Teil des besten Kompromisses zwischen Kosten und Zeit	Forma parte del mejor equilibrio entre coste y tiempo	Del av det beste kompromisset mellom kostnad og tid	Fa parte del piano con il miglior compromesso tra spesa e tempo
+Checking feasible alternatives…	Vérification des alternatives réalisables…	Machbare Alternativen werden geprüft…	Comprobando alternativas viables…	Kontrollerer gjennomførbare alternativer…	Verifica delle alternative fattibili…
+No feasible alternatives among verified stations	Aucune autre option réalisable parmi les stations vérifiées	Keine machbaren Alternativen unter den geprüften Tankstellen	No hay alternativas viables entre las gasolineras verificadas	Ingen gjennomførbare alternativer blant kontrollerte bensinstasjoner	Nessuna alternativa fattibile tra i distributori verificati
+Change in refuelling cost	Écart de coût de ravitaillement	Unterschied bei den Tankkosten	Variación del coste de repostaje	Endring i fyllekostnad	Differenza nella spesa per i rifornimenti
+Change in trip time	Écart de durée du trajet	Unterschied bei der Reisedauer	Variación del tiempo de viaje	Endring i reisetid	Differenza nella durata del viaggio
+Checking fuel stations… {0}/{1}	Vérification des stations-service… {0}/{1}	Tankstellen werden geprüft… {0}/{1}	Comprobando gasolineras… {0}/{1}	Kontrollerer bensinstasjoner… {0}/{1}	Verifica dei distributori… {0}/{1}
+Recorded trips on this route	Trajets enregistrés sur cet itinéraire	Aufgezeichnete Fahrten auf dieser Route	Viajes registrados en esta ruta	Registrerte turer på denne ruten	Viaggi registrati su questo itinerario
+Comparable trips	Trajets comparables	Vergleichbare Fahrten	Viajes comparables	Sammenlignbare turer	Viaggi simili
+Consumption is estimated after routing.	La consommation est estimée après le calcul de l’itinéraire.	Der Verbrauch wird nach der Routenberechnung geschätzt.	El consumo se estima tras calcular la ruta.	Forbruket anslås etter at ruten er beregnet.	Il consumo viene stimato dopo il calcolo del percorso.
+Verified plan · still optimizing	Plan vérifié · optimisation en cours	Geprüfter Plan · Optimierung läuft	Plan verificado · optimización en curso	Kontrollert plan · optimalisering pågår	Piano verificato · ottimizzazione in corso
+Keep this plan	Conserver ce plan	Diesen Plan behalten	Conservar este plan	Behold denne planen	Mantieni questo piano
+Cancel calculation	Annuler le calcul	Berechnung abbrechen	Cancelar cálculo	Avbryt beregningen	Annulla il calcolo
+The cached stations cannot cover the new fuel settings.	Les stations enregistrées ne suffisent pas pour les nouveaux réglages.	Die gespeicherten Tankstellen reichen für die neuen Einstellungen nicht aus.	Las gasolineras guardadas no cubren los nuevos ajustes.	De lagrede bensinstasjonene dekker ikke de nye innstillingene.	I distributori già verificati sono insufficienti per i nuovi parametri.
+Same solution in verified stations	Même solution parmi les stations vérifiées	Gleiche Lösung unter den geprüften Tankstellen	Misma solución entre las gasolineras verificadas	Samme løsning blant de kontrollerte bensinstasjonene	Stessa soluzione tra i distributori verificati
+Show details	Afficher les détails	Details anzeigen	Mostrar detalles	Vis detaljer	Mostra dettagli
+Hide details	Masquer les détails	Details ausblenden	Ocultar detalles	Skjul detaljer	Nascondi dettagli
+Selected: {0}	Sélection : {0}	Ausgewählt: {0}	Selección: {0}	Valgt: {0}	Selezionata: {0}
+Expected average consumption	Consommation moyenne prévue	Erwarteter Durchschnittsverbrauch	Consumo medio previsto	Forventet gjennomsnittsforbruk	Consumo medio atteso
+Prediction source	Source de l’estimation	Grundlage der Prognose	Origen de la previsión	Grunnlag for prognosen	Fonte della previsione
+Prudent fuel estimate for reserve	Estimation prudente pour la réserve	Konservative Kraftstoffschätzung für die Reserve	Estimación prudente para la reserva	Forsiktig drivstoffanslag for reserven	Consumo prudenziale per la riserva
+Historical trips used	Trajets historiques utilisés	Verwendete frühere Fahrten	Viajes del historial utilizados	Tidligere turer brukt	Viaggi storici utilizzati
+Historical distance	Distance des trajets historiques	Strecke der früheren Fahrten	Distancia de los viajes del historial	Avstand for tidligere turer	Distanza storica totale
+Hide history	Masquer l’historique	Verlauf ausblenden	Ocultar historial	Skjul historikk	Nascondi storico
+Show history	Afficher l’historique	Verlauf anzeigen	Mostrar historial	Vis historikk	Mostra storico
+Hide diagnostics	Masquer le diagnostic	Diagnose ausblenden	Ocultar diagnóstico	Skjul diagnostikk	Nascondi diagnostica
+Show diagnostics	Afficher le diagnostic	Diagnose anzeigen	Mostrar diagnóstico	Vis diagnostikk	Mostra diagnostica
+Stations in corridor	Stations dans le corridor	Tankstellen im Routenkorridor	Gasolineras en el corredor	Bensinstasjoner i rutekorridoren	Distributori nel corridoio
+Stations verified / examined	Stations vérifiées / examinées	Tankstellen geprüft / untersucht	Gasolineras verificadas / examinadas	Bensinstasjoner bekreftet / undersøkt	Distributori verificati / esaminati
+Fresh prices at verified stations	Prix récents aux stations vérifiées	Aktuelle Preise an geprüften Tankstellen	Precios recientes en gasolineras verificadas	Oppdaterte priser på kontrollerte bensinstasjoner	Prezzi recenti tra le stazioni verificate
+Verified quote range	Fourchette des prix vérifiés	Preisspanne der geprüften Tankstellen	Intervalo de precios verificados	Prisspenn for kontrollerte bensinstasjoner	Intervallo dei prezzi verificati
+Running local backtest…	Validation locale sur l’historique…	Rücktest mit lokalen Fahrdaten läuft…	Validando el modelo con el historial local…	Validerer modellen mot lokal historikk…	Validazione sullo storico in corso…
+Insufficient validated history for backtesting	Historique validé insuffisant pour le test	Zu wenige validierte Fahrten für den Rücktest	Historial validado insuficiente para la prueba	For lite validert historikk til å teste modellen	Storico validato insufficiente per il confronto
+New MAE / MAPE / bias	Nouveaux MAE / MAPE / biais	Neue MAE / MAPE / Verzerrung	Nuevos MAE / MAPE / sesgo	Ny MAE / MAPE / skjevhet	Nuovo MAE / MAPE / bias
+Previous MAE / MAPE / bias	Anciens MAE / MAPE / biais	Bisherige MAE / MAPE / Verzerrung	MAE / MAPE / sesgo anteriores	Tidligere MAE / MAPE / skjevhet	Precedente MAE / MAPE / bias
+Short trips	Trajets courts	Kurze Fahrten	Viajes cortos	Korte turer	Viaggi brevi
+Medium trips	Trajets moyens	Mittellange Fahrten	Viajes de distancia media	Mellomlange turer	Viaggi medi
+Long trips	Trajets longs	Lange Fahrten	Viajes largos	Lange turer	Viaggi lunghi
+Check more stations	Vérifier d’autres stations	Weitere Tankstellen prüfen	Comprobar más gasolineras	Kontroller flere bensinstasjoner	Verifica altri distributori
+Limited historical support	Estimation basée sur peu de trajets	Schätzung basiert auf wenigen Fahrten	Previsión basada en pocos viajes	Prognosen bygger på få turer	Previsione basata su pochi viaggi
+Waiting briefly for driving history…	En attente de l’historique de conduite…	Warte kurz auf den Fahrverlauf…	Esperando brevemente el historial de conducción…	Venter kort på kjørehistorikken…	Attesa breve dello storico dei viaggi…
+Recalculate with updated history	Recalculer avec l’historique actualisé	Mit aktualisiertem Verlauf neu berechnen	Recalcular con el historial actualizado	Beregn på nytt med oppdatert historikk	Ricalcola con lo storico aggiornato
+Checking additional stations…	Vérification d’autres stations…	Weitere Tankstellen werden geprüft…	Comprobando más gasolineras…	Kontrollerer flere bensinstasjoner…	Verifica di altri distributori…
+Waiting for the router retry window	En attente avant de réessayer le service d’itinéraires	Warte auf das Ende der Routing-Sperrfrist	Esperando para volver a consultar el servicio de rutas	Venter før rutetjenesten kan prøves igjen	Il servizio di routing ha chiesto di attendere prima di riprovare
+No more stations in the corridor	Plus aucune station à vérifier dans le corridor	Keine weiteren Tankstellen im Korridor zu prüfen	No quedan gasolineras por comprobar en el corredor	Ingen flere bensinstasjoner å kontrollere i korridoren	Nessun altro distributore da verificare nel corridoio
+Better fuel options found	De meilleures options de ravitaillement ont été trouvées	Bessere Tankmöglichkeiten gefunden	Se encontraron mejores opciones de repostaje	Fant bedre alternativer for fylling	Trovate soluzioni di rifornimento migliori
+No better plan found in this group	Aucun meilleur plan trouvé dans ce groupe	Kein besserer Plan in dieser Gruppe gefunden	No se encontró un plan mejor en este grupo	Fant ingen bedre plan i denne gruppen	Nessun piano migliore in questo gruppo
+Could not finish checking additional stations	Impossible de terminer la vérification des autres stations	Prüfung weiterer Tankstellen konnte nicht abgeschlossen werden	No se pudo completar la comprobación de más gasolineras	Kunne ikke fullføre kontrollen av flere bensinstasjoner	Impossibile completare la verifica degli altri distributori
+Additional station check cancelled	Vérification des autres stations annulée	Prüfung weiterer Tankstellen abgebrochen	Comprobación de más gasolineras cancelada	Kontroll av flere bensinstasjoner avbrutt	Verifica di altri distributori annullata
+Additional stations checked	Nouvelles stations examinées	Weitere Tankstellen untersucht	Gasolineras nuevas examinadas	Nye bensinstasjoner undersøkt	Nuovi distributori esaminati
+Stations accepted	Stations confirmées	Bestätigte Tankstellen	Gasolineras aceptadas	Bensinstasjoner bekreftet	Distributori verificati con successo
+Stations retried	Stations vérifiées de nouveau	Erneut geprüfte Tankstellen	Gasolineras comprobadas de nuevo	Bensinstasjoner kontrollert på nytt	Distributori ritentati
+Stations remaining to examine	Stations restant à examiner	Noch zu untersuchende Tankstellen	Gasolineras pendientes de examinar	Bensinstasjoner som gjenstår å undersøke	Candidati ancora da esaminare
+Itinerary routing requests	Requêtes de calcul de l’itinéraire	Routing-Anfragen für die Hauptstrecke	Solicitudes para calcular el itinerario	Ruteforespørsler for hovedruten	Richieste di routing per l'itinerario
+Cached itinerary route responses	Itinéraires récupérés du cache	Hauptstrecken aus dem Cache	Itinerarios recuperados de la caché	Hovedruter hentet fra hurtigbufferen	Itinerari recuperati dalla cache
+Station routing requests	Requêtes de calcul d’accès aux stations	Routing-Anfragen für Tankstellen	Solicitudes de ruta para las gasolineras	Ruteforespørsler for bensinstasjoner	Richieste di routing per i distributori
+Cached station route responses	Trajets vers les stations récupérés du cache	Tankstellenrouten aus dem Cache	Rutas a gasolineras recuperadas de la caché	Bensinstasjonsruter hentet fra hurtigbufferen	Risposte di routing dei distributori recuperate dalla cache
+Corridor quotes (min / median / max)	Prix du corridor (min / médiane / max)	Preise im Korridor (Min. / Median / Max.)	Precios del corredor (mín. / mediana / máx.)	Priser i korridoren (min / median / maks)	Prezzi nel corridoio (min / mediana / max)
+Shortlisted quotes (min / median / max)	Prix présélectionnés (min / médiane / max)	Preise der Vorauswahl (Min. / Median / Max.)	Precios preseleccionados (mín. / mediana / máx.)	Priser i utvalget (min / median / maks)	Prezzi dei preselezionati (min / mediana / max)
+Verified quotes (min / median / max)	Prix vérifiés (min / médiane / max)	Geprüfte Preise (Min. / Median / Max.)	Precios verificados (mín. / mediana / máx.)	Kontrollerte priser (min / median / maks)	Prezzi dei verificati (min / mediana / max)
+Candidate verification details	Détails de la vérification des stations	Details zur Prüfung der Tankstellen	Detalles de verificación de las gasolineras	Detaljer om kontroll av bensinstasjoner	Dettagli sulla verifica dei candidati
+Straight-line distance	Distance à vol d’oiseau	Luftlinie	Distancia en línea recta	Avstand i luftlinje	Distanza in linea d'aria
+Added road distance	Distance routière supplémentaire	Zusätzliche Straßenstrecke	Distancia adicional por carretera	Ekstra kjørelengde	Distanza stradale aggiuntiva
+Verification outcomes	Résultats de la vérification	Prüfergebnisse	Resultados de la verificación	Resultater av kontrollen	Esiti della verifica
+Promising stations skipped	Stations prometteuses écartées	Übersprungene vielversprechende Tankstellen	Gasolineras prometedoras descartadas	Lovende bensinstasjoner utelatt	Distributori promettenti esclusi
+Road verified	Accès routier vérifié	Zufahrt geprüft	Acceso por carretera verificado	Veiforbindelse bekreftet	Accesso stradale verificato
+No route in checked windows	Aucun accès par les points testés	Keine Zufahrt über die geprüften Punkte	Sin acceso a través de los puntos comprobados	Ingen veiforbindelse via de kontrollerte punktene	Nessun accesso attraverso i punti provati
+Exceeds added-distance limit	Dépasse la limite de distance supplémentaire	Grenze für zusätzliche Strecke überschritten	Supera el límite de distancia adicional	Overskrider grensen for ekstra kjørelengde	Supera il limite di distanza aggiuntiva
+Inconsistent station snap	Position de la station incohérente avec l’itinéraire	Tankstellenposition passt nicht zur Route	La posición de la gasolinera no coincide con la ruta	Bensinstasjonens plassering stemmer ikke med ruten	Posizione del distributore incoerente con il percorso
+Router unavailable	Service de calcul d’itinéraires indisponible	Routing-Dienst nicht verfügbar	Servicio de rutas no disponible	Rutetjenesten er utilgjengelig	Servizio di routing indisponibile
+Router timeout	Délai de réponse du service d’itinéraires dépassé	Zeitüberschreitung beim Routing-Dienst	Tiempo de espera del servicio de rutas agotado	Tidsavbrudd i rutetjenesten	Tempo di risposta del routing scaduto
+Router rate limit	Limite de requêtes du service d’itinéraires	Anfragelimit des Routing-Dienstes	Límite de solicitudes del servicio de rutas	Forespørselsgrense for rutetjenesten	Limite di richieste del servizio di routing
+Verification budget reached	Limite de vérifications atteinte	Prüflimit erreicht	Límite de verificaciones alcanzado	Grensen for kontroller er nådd	Raggiunto il limite di verifiche per questo gruppo
+Required fields marked with *	Les champs obligatoires sont marqués d’un *	Pflichtfelder sind mit * gekennzeichnet	Los campos obligatorios están marcados con *	Obligatoriske felt er merket med *	I campi obbligatori sono contrassegnati con *
+From *	Départ *	Start *	Salida *	Fra *	Partenza *
+Where to? *	Destination *	Ziel *	Destino *	Reisemål *	Destinazione *
+Optional stop	Étape facultative	Optionaler Zwischenstopp	Parada opcional	Valgfritt stopp	Tappa facoltativa
+Select a departure point	Choisissez un point de départ	Startpunkt auswählen	Selecciona un punto de salida	Velg et startpunkt	Seleziona il punto di partenza
+Select a destination	Choisissez une destination	Ziel auswählen	Selecciona un destino	Velg et reisemål	Seleziona una destinazione
+Capacity from vehicle specifications	Capacité selon la fiche technique du véhicule	Kapazität laut Fahrzeugdatenblatt	Capacidad según la ficha técnica del vehículo	Kapasitet fra bilens tekniske spesifikasjoner	Capacità dalla scheda del veicolo
+Enter a tank capacity between 1 and 300.	Saisissez une capacité de réservoir entre 1 et 300.	Eine Tankkapazität zwischen 1 und 300 eingeben.	Introduce una capacidad del depósito entre 1 y 300.	Skriv inn en tankkapasitet mellom 1 og 300.	Inserisci una capacità compresa tra 1 e 300.
+Enter a starting level from 0 to 100%.	Saisissez un niveau initial entre 0 et 100 %.	Einen Anfangsfüllstand von 0 bis 100 % eingeben.	Introduce un nivel inicial entre el 0 y el 100 %.	Skriv inn et startnivå mellom 0 og 100 %.	Inserisci un livello iniziale tra 0 e 100%.
+Enter an amount within the tank capacity.	Saisissez une quantité compatible avec la capacité du réservoir.	Eine Menge innerhalb der Tankkapazität eingeben.	Introduce una cantidad dentro de la capacidad del depósito.	Skriv inn en mengde innenfor tankens kapasitet.	Inserisci una quantità entro la capacità del serbatoio.
+Show optional trip settings	Afficher les options du trajet	Optionale Reiseeinstellungen anzeigen	Mostrar opciones de viaje	Vis valgfrie turinnstillinger	Mostra le opzioni facoltative
+Hide optional trip settings	Masquer les options du trajet	Optionale Reiseeinstellungen ausblenden	Ocultar opciones de viaje	Skjul valgfrie turinnstillinger	Nascondi le opzioni facoltative
+Enter a consumption between 0.5 and 40.	Saisissez une consommation entre 0,5 et 40.	Einen Verbrauch zwischen 0,5 und 40 eingeben.	Introduce un consumo entre 0,5 y 40.	Skriv inn et forbruk mellom 0,5 og 40.	Inserisci un consumo compreso tra 0,5 e 40.
+Enter a reserve from 0 to 90%.	Saisissez une réserve entre 0 et 90 %.	Eine Reserve von 0 bis 90 % eingeben.	Introduce una reserva entre el 0 y el 90 %.	Skriv inn en reserve mellom 0 og 90 %.	Inserisci una riserva tra 0 e 90%.
+Enter a margin from 0 to 50%.	Saisissez une marge entre 0 et 50 %.	Einen Zuschlag von 0 bis 50 % eingeben.	Introduce un margen entre el 0 y el 50 %.	Skriv inn en margin mellom 0 og 50 %.	Inserisci un margine tra 0 e 50%.
+Enter a detour between 0.5 and 30 km.	Saisissez un détour entre 0,5 et 30 km.	Einen Umweg zwischen 0,5 und 30 km eingeben.	Introduce un desvío entre 0,5 y 30 km.	Skriv inn en omvei mellom 0,5 og 30 km.	Inserisci una deviazione compresa tra 0,5 e 30 km.
+Default: {0}	Par défaut : {0}	Standard: {0}	Predeterminado: {0}	Standard: {0}	Valore predefinito: {0}
+Center map on your car	Centrer la carte sur votre voiture	Karte auf Ihr Fahrzeug zentrieren	Centrar el mapa en tu coche	Sentrer kartet på bilen	Centra la mappa sulla tua auto
+Showing cached fuel stations	Stations-service enregistrées	Gespeicherte Tankstellen werden angezeigt	Mostrando gasolineras guardadas	Viser lagrede bensinstasjoner	Distributori da cache
+Fuel station update failed	Échec de la mise à jour des stations-service	Tankstellen-Aktualisierung fehlgeschlagen	Error al actualizar las gasolineras	Kunne ikke oppdatere bensinstasjonene	Aggiornamento distributori non riuscito
+Stations updated {0}	Stations mises à jour le {0}	Tankstellen aktualisiert: {0}	Gasolineras actualizadas el {0}	Bensinstasjoner oppdatert {0}	Distributori aggiornati il {0}
+Use vehicle tank capacity	Utiliser la capacité du réservoir du véhicule	Tankkapazität des Fahrzeugs verwenden	Usar la capacidad del depósito del vehículo	Bruk bilens tankkapasitet	Usa la capacità da scheda veicolo
+Use vehicle fuel level	Utiliser le niveau du véhicule	Füllstand des Fahrzeugs übernehmen	Usar el nivel de combustible del vehículo	Bruk bilens drivstoffnivå	Usa il livello del veicolo
+Use estimated fuel level	Utiliser le niveau estimé	Geschätzten Füllstand übernehmen	Usar el nivel de combustible estimado	Bruk anslått drivstoffnivå	Usa il livello stimato
+Net fuel used by detours	Carburant net consommé par les détours	Netto-Kraftstoffverbrauch der Umwege	Combustible neto consumido en los desvíos	Netto drivstoff brukt på omveiene	Consumo netto delle deviazioni
+Net fuel used by this detour	Carburant net consommé par ce détour	Netto-Kraftstoffverbrauch dieses Umwegs	Combustible neto consumido en este desvío	Netto drivstoff brukt på denne omveien	Consumo netto di questa deviazione
+Estimated value of detour fuel	Valeur estimée du carburant des détours	Geschätzter Wert des Kraftstoffs für den Umweg	Valor estimado del combustible del desvío	Anslått verdi av drivstoffet brukt på omvei	Valore stimato del carburante per le deviazioni
+Change in detour fuel	Écart de consommation des détours	Unterschied beim Kraftstoffverbrauch der Umwege	Variación del combustible de los desvíos	Endring i drivstoff brukt på omveiene	Variazione del consumo per le deviazioni

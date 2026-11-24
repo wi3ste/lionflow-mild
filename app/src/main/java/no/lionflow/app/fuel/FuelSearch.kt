@@ -216,4 +216,4 @@ internal class FuelStationSearch(initial: List<FuelProjection>, private val rout
 }
 
 internal fun betterFuelPlans(previous: Map<FuelStrategy, FuelPlan>, revised: Map<FuelStrategy, FuelPlan>): Map<FuelStrategy, FuelPlan> =
-    previous + revised.filter { (strategy, plan) -> plan.score < (previous[strategy]?.score ?: Double.POSITIVE_INFINITY) - 1e-7 }
+    previous + revised.filter { (strategy, plan) -> previous[strategy]?.let(plan::isBetterThan) != false }

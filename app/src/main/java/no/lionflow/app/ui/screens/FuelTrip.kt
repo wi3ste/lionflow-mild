@@ -474,6 +474,7 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
     var showSamples by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
     val strategy = result.request.constraints.strategy
+    fun quantity(value: Double) = "${fuelNumber(value, 2)} $unit"
     if (showComparison) {
         val fastest = result.comparisons[FuelStrategy.FAST]
         val groups = result.comparisons.entries.groupBy { (_, comparison) ->
@@ -495,6 +496,8 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
                         FuelMetric("Savings vs fastest (fuel purchases)", fuelMoney(difference(fastest?.purchaseCost, comparison.purchaseCost)))
                         if (details) {
                             FuelMetric("Estimated spend on refuelling", fuelMoney(comparison.purchaseCost))
+                            FuelMetric("Net fuel used by detours", quantity(result.expectedDetourFuel(comparison)))
+                            FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(comparison)))
                             FuelMetric("Total distance", fmtDistance(comparison.totalKm, settings))
                             FuelMetric("Fuel at arrival", "${fuelNumber(comparison.remaining, 1)} $unit")
                         }
@@ -512,7 +515,6 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
             confirmButton = { TextButton(onClick = { showComparison = false }) { Text("Close", color = c.accentInk) } },
         )
     }
-    fun quantity(value: Double) = "${fuelNumber(value, 2)} $unit"
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Fuel trip", style = Type.stat, color = c.text)
         if (p.busy != null) FuelProgress(p)
@@ -565,6 +567,10 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
         FuelMetric("Estimated spend on refuelling", fuelMoney(plan.purchaseCost))
         FuelMetric("Fuel stops", plan.stops.size.toString())
         FuelMetric("Extra distance", fmtDistance(plan.detourKm, settings))
+        if (plan.stops.isNotEmpty()) {
+            FuelMetric("Net fuel used by detours", quantity(result.expectedDetourFuel(plan)))
+            FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(plan)))
+        }
         FuelMetric("Extra time for fuel stops", signedDuration(plan.extraMin))
         FuelMetric("Fuel at arrival", quantity(plan.remaining))
         if (plan.stops.isEmpty()) Text("No refuelling needed", color = c.muted, style = Type.small)
@@ -600,6 +606,8 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
                 FuelMetric("Unit price", fuelPrice(offer, result.priceTime))
                 FuelMetric("Refuelling cost", fuelMoney(stop.cost, offer.currency))
                 FuelMetric("Road detour", "${fmtDistance(stop.candidate.detourKm, settings)} · ${signedDuration(stop.candidate.detourMin)}")
+                FuelMetric("Net fuel used by this detour", quantity(result.expectedDetourFuel(stop)))
+                FuelMetric("Estimated value of detour fuel", fuelMoney(result.expectedDetourValue(stop), offer.currency))
                 FuelMetric("Service", offer.service?.label?.let(L10n::tr) ?: L10n.tr("Unknown"))
                 FuelMetric("Price reported", offer.reportedAt?.let(::fuelDate) ?: L10n.tr("Unknown"))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -638,6 +646,7 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, newHisto
                             Column {
                                 androidx.compose.material3.Text("${stationName(candidate.station)} · ${fuelPrice(candidate.offer, result.priceTime)}", color = c.text, style = Type.small)
                                 FuelMetric("Change in refuelling cost", fuelMoney(difference(revised.purchaseCost, plan.purchaseCost)))
+                                FuelMetric("Change in detour fuel", quantity(result.expectedDetourFuel(revised) - result.expectedDetourFuel(plan)))
                                 FuelMetric("Change in trip time", signedDuration(revised.totalMin - plan.totalMin))
                             }
                         },

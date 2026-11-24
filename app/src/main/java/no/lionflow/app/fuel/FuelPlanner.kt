@@ -57,6 +57,20 @@ internal data class FuelTripResult(
     fun expectedCost(plan: FuelPlan) =
         FuelOptimizer.consumedCost(expectedUsed(plan), request.constraints.initial, reference, plan.stops)
 
+    fun expectedDetourFuel(stop: FuelStop) = stop.candidate.detourFuel / prediction.safetyFactor
+    fun expectedDetourFuel(plan: FuelPlan) = plan.detourFuel / prediction.safetyFactor
+
+    fun expectedDetourValue(stop: FuelStop): Double? {
+        val fuel = expectedDetourFuel(stop)
+        return if (kotlin.math.abs(fuel) < 1e-7) 0.0 else (stop.candidate.offer.price ?: reference)?.times(fuel)
+    }
+
+    fun expectedDetourValue(plan: FuelPlan): Double? {
+        var total = 0.0
+        for (stop in plan.stops) total += expectedDetourValue(stop) ?: return null
+        return total
+    }
+
     fun navigationUrl(): String {
         val origin = request.from
         val destination = if (request.round) origin else request.to
@@ -149,6 +163,12 @@ internal class FuelPlanner(
                 FuelOptimizer.plan(current.roadFuel, current.road.totalKm, current.road.totalMin, current.request.constraints,
                     current.candidates, current.priceTime, current.reference, stationLocks + (candidate.key to FuelStopEdit()),
                     omissions - candidate.key)?.let { candidate to it }
+            }.sortedWith { first, second ->
+                when {
+                    first.second.isBetterThan(second.second) -> -1
+                    second.second.isBetterThan(first.second) -> 1
+                    else -> 0
+                }
             }.take(4)
         }
     }

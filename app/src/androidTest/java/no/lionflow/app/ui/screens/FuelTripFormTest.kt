@@ -27,11 +27,36 @@ import no.lionflow.app.ui.UiState
 import no.lionflow.app.ui.l10n.L10n
 import no.lionflow.app.ui.theme.LionFlowTheme
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
 class FuelTripFormTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun fuelFieldsAndDetourCostsUseTheAppTranslationTable() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val previous = L10n.lang
+            try {
+                val labels = mapOf(
+                    "en" to ("Tank capacity" to "Net fuel used by detours"),
+                    "fr" to ("Capacité du réservoir" to "Carburant net consommé par les détours"),
+                    "de" to ("Tankkapazität" to "Netto-Kraftstoffverbrauch der Umwege"),
+                    "es" to ("Capacidad del depósito" to "Combustible neto consumido en los desvíos"),
+                    "nb" to ("Tankkapasitet" to "Netto drivstoff brukt på omveiene"),
+                    "it" to ("Capacità del serbatoio" to "Consumo netto delle deviazioni"),
+                )
+                for ((language, text) in labels) {
+                    L10n.init(instrumentation.targetContext, language)
+                    assertEquals(text.first, L10n.tr("Tank capacity"))
+                    assertEquals(text.second, L10n.tr("Net fuel used by detours"))
+                }
+            } finally {
+                L10n.setPreference(previous)
+            }
+        }
+    }
 
     @Test fun formPrefillsFuelAndIdentifiesMissingRequiredFields() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as LionFlowApp

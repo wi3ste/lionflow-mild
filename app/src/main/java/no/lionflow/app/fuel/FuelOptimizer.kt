@@ -82,20 +82,29 @@ internal data class FuelPlan(
     val score: Double = 0.0,
 ) {
     val detourKm get() = stops.sumOf { it.candidate.detourKm }
+    val detourFuel get() = stops.sumOf { it.candidate.detourFuel }
     val extraMin get() = stops.sumOf { it.candidate.detourMin + it.serviceMin }
     val totalMin get() = driveMin + stops.sumOf { it.serviceMin }
     val purchased get() = stops.sumOf { it.purchased }
     val purchaseCost get() = if (stops.all { it.cost != null }) stops.sumOf { it.cost!! } else null
+
+    fun isBetterThan(other: FuelPlan) = improvesFuelScore(score, detourFuel, other.score, other.detourFuel)
 }
 
 private fun serviceTime(amount: Double) = 5.0 + amount / 8
 private const val EPS = 1e-7
 
+private fun improvesFuelScore(score: Double, detourFuel: Double, otherScore: Double, otherFuel: Double): Boolean =
+    score < otherScore - EPS || (kotlin.math.abs(score - otherScore) <= EPS && detourFuel < otherFuel - EPS)
+
 /** Forward search over verified stops. Labels preserve exact fuel balances and remove dominated arrivals. */
 internal object FuelOptimizer {
     private data class Label(
         val remaining: Double, val score: Double, val stop: FuelStop? = null, val prev: Label? = null, val extraMin: Double = 0.0,
-    )
+        val detourFuel: Double = 0.0,
+    ) {
+        fun isBetterThan(other: Label) = improvesFuelScore(score, detourFuel, other.score, other.detourFuel)
+    }
 
     fun plan(
         roadFuel: Double, roadKm: Double, roadMin: Double, constraints: FuelConstraints,
@@ -116,17 +125,17 @@ internal object FuelOptimizer {
 
         fun record(index: Int, label: Label) {
             if (index == terminal) {
-                if (best == null || label.score < best!!.score - EPS) best = label
+                if (best?.let { label.isBetterThan(it) } != false) best = label
                 return
             }
             val arrivals = labels[index]
             val previous = arrivals[label.remaining]
-            if (previous != null && previous.score <= label.score + EPS) return
+            if (previous != null && !label.isBetterThan(previous)) return
             if (locked.isEmpty()) {
                 val fuller = arrivals.higherEntry(label.remaining)
-                if (fuller != null && fuller.value.score <= label.score + EPS) return
+                if (fuller != null && !label.isBetterThan(fuller.value)) return
                 var lower = arrivals.lowerEntry(label.remaining)
-                while (lower != null && lower.value.score >= label.score - EPS) {
+                while (lower != null && !lower.value.isBetterThan(label)) {
                     arrivals.remove(lower.key)
                     lower = arrivals.lowerEntry(label.remaining)
                 }
@@ -144,10 +153,13 @@ internal object FuelOptimizer {
         }
 
         for ((index, node) in nodes.withIndex()) {
-            val arrivals = labels[index].values.sortedWith(compareByDescending<Label> { it.remaining }.thenBy { it.score })
+            val arrivals = labels[index].values.sortedByDescending { it.remaining }
             val active = if (arrivals.size > 512 && locked.isNotEmpty()) {
                 // Preserve both a low-score and a high-fuel arrival in each group for edited trips.
-                arrivals.chunked((arrivals.size + 255) / 256).flatMap { group -> listOf(group.first(), group.minBy { it.score }) }.distinct()
+                arrivals.chunked((arrivals.size + 255) / 256).flatMap { group ->
+                    val preferred = group.reduce { best, label -> if (label.isBetterThan(best)) label else best }
+                    listOf(group.first(), preferred)
+                }.distinct()
             } else arrivals
             val last = nextLock(index)
             val uses = (index + 1..last).filter { next -> next == terminal ||
@@ -159,11 +171,11 @@ internal object FuelOptimizer {
             // intermediate purchases or carry cheaper fuel across a more expensive stop.
             val targets = (uses.map { (_, needed) -> (reserve + needed).coerceAtMost(capacity) } + capacity).distinct().sorted()
             val edit = locked[node.key]
-            var bestScore = Double.POSITIVE_INFINITY
+            var bestArrival: Label? = null
 
             for (arrival in active) {
-                if (locked.isEmpty() && arrival.score >= bestScore - EPS) continue
-                bestScore = minOf(bestScore, arrival.score)
+                if (locked.isEmpty() && bestArrival?.let { !arrival.isBetterThan(it) } == true) continue
+                bestArrival = arrival
                 val departures = edit?.amount?.let { listOf(arrival.remaining + it) } ?: if (edit != null) {
                     (targets + (arrival.remaining + 0.01)).distinct()
                 } else targets
@@ -175,7 +187,8 @@ internal object FuelOptimizer {
                     val score = arrival.score + cost(strategy, stop, referencePrice, now)
                     for ((next, needed) in uses) {
                         if (departure - needed >= reserve - EPS) {
-                            record(next, Label((departure - needed).coerceAtLeast(reserve), score, stop, arrival, arrival.extraMin + extra))
+                            record(next, Label((departure - needed).coerceAtLeast(reserve), score, stop, arrival,
+                                arrival.extraMin + extra, arrival.detourFuel + node.detourFuel))
                         }
                     }
                 }
@@ -183,7 +196,7 @@ internal object FuelOptimizer {
         }
         val result = best ?: return null
         val stops = generateSequence(result) { it.prev }.mapNotNull { it.stop }.toList().asReversed()
-        val used = roadFuel + stops.sumOf { it.candidate.detourFuel }
+        val used = roadFuel + result.detourFuel
         return FuelPlan(used, result.remaining, stops, roadMin + stops.sumOf { it.candidate.detourMin },
             roadKm + stops.sumOf { it.candidate.detourKm }, consumedCost(used, initial, referencePrice, stops), result.score)
     }
@@ -191,6 +204,7 @@ internal object FuelOptimizer {
     private fun cost(strategy: FuelStrategy, stop: FuelStop, referencePrice: Double?, now: Instant): Double {
         val node = stop.candidate
         val minutes = node.detourMin + stop.serviceMin
+        // The fuel balance already increases the paid volume by the net fuel burned on both access legs.
         // Unquoted fuel stays usable for feasibility. This internal penalty never becomes a displayed price.
         val purchase = stop.cost ?: (referencePrice?.times(2) ?: 5.0) * stop.purchased
         val stale = if (node.offer.price != null && !node.offer.fresh(now)) 0.30 * stop.purchased else 0.0

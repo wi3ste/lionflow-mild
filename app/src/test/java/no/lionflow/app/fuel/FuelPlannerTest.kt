@@ -111,6 +111,54 @@ class FuelPlannerTest {
         assertNull(plan(28.0, 10.0, listOf(stop("A", 7.0, 1.5), stop("B", 23.0, 1.5))))
     }
 
+    @Test fun extraFuelCanMakeTheLowerPricePerLitreMoreExpensive() {
+        val distant = stop("distant", 5.0, 1.80, detourFuel = 0.5)
+        val nearby = stop("nearby", 6.0, 2.00)
+        val distantPlan = plan(15.0, 10.0, listOf(distant))!!
+        assertEquals(1.0, distantPlan.detourFuel, 1e-8)
+        assertEquals(8.0, distantPlan.purchased, 1e-8)
+        assertEquals(14.40, distantPlan.purchaseCost!!, 1e-8)
+        val result = plan(15.0, 10.0, listOf(distant, nearby))!!
+        assertEquals(nearby.key, result.stops.single().candidate.key)
+        assertEquals(14.00, result.purchaseCost!!, 1e-8)
+    }
+
+    @Test fun lessDetourFuelBreaksAScoreTieWhenANewStationIsVerified() {
+        val distant = stop("distant", 5.0, 1.75, detourFuel = 0.5)
+        val nearby = stop("nearby", 6.0, 2.00)
+        val before = plan(15.0, 10.0, listOf(distant))!!
+        val revised = plan(15.0, 10.0, listOf(distant, nearby))!!
+        assertEquals(before.score, revised.score, 1e-8)
+        assertEquals(nearby.key, revised.stops.single().candidate.key)
+        val strategy = FuelStrategy.ECONOMY
+        assertSame(revised, betterFuelPlans(mapOf(strategy to before), mapOf(strategy to revised))[strategy])
+        assertSame(revised, betterFuelPlans(mapOf(strategy to revised), mapOf(strategy to before))[strategy])
+    }
+
+    @Test fun detourValueUsesExpectedNetFuelAndKeepsPumpCostsSeparate() {
+        val model = FuelConsumption.estimate(FuelGrade.PETROL, FuelProfile.COMBUSTION, emptyList(), 6.0, 10.0)
+        val original = stop("detour", 5.0, 1.75, detourFuel = 0.55)
+        val candidate = original.copy(rejoin = FuelRejoin(55.0, 28.0, 5.33))
+        val trip = plan(15.0, 10.0, listOf(candidate))!!
+        val request = FuelTripRequest(candidate.projection.anchor, candidate.projection.anchor, emptyList(), false, now,
+            FuelGrade.PETROL, FuelServiceFilter.ANY, FuelProfile.COMBUSTION, 6.0, 10.0,
+            FuelConstraints(15.0, 10.0, 2.0, FuelStrategy.ECONOMY), 8.0)
+        val result = FuelTripResult(request, route(), 15.0, listOf(candidate), 1.8, now, false, trip, model,
+            FuelSearchSummary(1, 1, 1, 1, false))
+        val fuelStop = trip.stops.single()
+        assertEquals(0.7, result.expectedDetourFuel(fuelStop), 1e-8)
+        assertEquals(0.7, result.expectedDetourFuel(trip), 1e-8)
+        assertEquals(0.7 * 1.75, result.expectedDetourValue(fuelStop)!!, 1e-8)
+        assertEquals(0.7 * 1.75, result.expectedDetourValue(trip)!!, 1e-8)
+        assertEquals(7.77 * 1.75, trip.purchaseCost!!, 1e-8)
+
+        val noQuote = candidate.copy(projection = candidate.projection.copy(offer = candidate.offer.copy(price = null)))
+        val unquotedStop = fuelStop.copy(candidate = noQuote)
+        assertNull(unquotedStop.cost)
+        assertEquals(0.7 * 1.80, result.expectedDetourValue(unquotedStop)!!, 1e-8)
+        assertNull(result.copy(reference = null).expectedDetourValue(unquotedStop))
+    }
+
     @Test fun unknownPriceCanKeepRouteFeasibleWithoutInventingAmountSpent() {
         val result = plan(15.0, 10.0, listOf(stop("unpriced", 6.0, null)))!!
         assertNull(result.purchaseCost)
