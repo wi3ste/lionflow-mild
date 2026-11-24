@@ -9,6 +9,10 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.time.Duration
+import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -210,71 +214,110 @@ object PlanApi {
         }
     }
 
-    internal suspend fun fuelRoute(a: Place, b: Place, via: List<Place>): RouteData =
-        osrmRoutes(a, b, via, alternatives = false, fuelRouting = true).first()
+    internal suspend fun fuelRoute(a: Place, b: Place, via: List<Place>, onRequest: () -> Unit): RouteData =
+        osrmRoutes(a, b, via, alternatives = false, fuelRouteRequest = onRequest).first()
 
     internal data class FuelAccess(val outKm: Double, val backKm: Double, val outMin: Double, val backMin: Double, val shape: String)
 
-    internal class FuelRoutingRateLimited : Exception()
+    internal class FuelRoutingRateLimited(val retrySeconds: Long) : Exception()
+
+    internal sealed interface FuelAccessResult {
+        data class Routed(val access: FuelAccess) : FuelAccessResult
+        data object NoRoute : FuelAccessResult
+        data class Unavailable(val timeout: Boolean = false) : FuelAccessResult
+        data object Budget : FuelAccessResult
+    }
     private val fuelRoutingClient by lazy {
         Http.client.newBuilder().callTimeout(5, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
     }
+    private val fuelItineraryClient by lazy {
+        Http.client.newBuilder().callTimeout(15, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
+    }
     private val fuelRequestLock = Mutex()
     private var priorFuelRequestNanos: Long? = null
+    @Volatile private var pauseFuelUntil = Instant.MIN
 
     private suspend fun paceFuelRequest() = fuelRequestLock.withLock {
+        val remaining = Duration.between(Instant.now(), pauseFuelUntil)
+        if (!remaining.isNegative && !remaining.isZero) throw FuelRoutingRateLimited(remaining.seconds + 1)
         val elapsed = priorFuelRequestNanos?.let { (System.nanoTime() - it) / 1_000_000 } ?: 1100
         if (elapsed < 1100) delay(1100 - elapsed)
         priorFuelRequestNanos = System.nanoTime()
     }
 
-    /** A directed loop from the route, through the station, back to the same carriageway. */
+    private fun limitFuelRouting(retry: String?): Nothing {
+        val now = Instant.now()
+        val seconds = retry?.toLongOrNull() ?: retry?.let {
+            runCatching { Duration.between(now, ZonedDateTime.parse(it, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()).seconds }.getOrNull()
+        } ?: 60
+        val wait = seconds.coerceAtLeast(60)
+        pauseFuelUntil = runCatching { now.plusSeconds(wait) }.getOrDefault(Instant.MAX)
+        throw FuelRoutingRateLimited(wait)
+    }
+
+    /** Route through the station with directional snaps on the original carriageway. */
     internal suspend fun fuelAccess(
-        anchor: Place, station: Place, bearing: Int, rejoin: Place = anchor, rejoinBearing: Int = bearing,
-    ): FuelAccess? {
+        anchor: Place, station: Place, bearing: Int, rejoin: Place, rejoinBearing: Int,
+        beginRequest: () -> Boolean,
+    ): FuelAccessResult {
         val position = "${num(anchor.lon)},${num(anchor.lat)}"
         val waypoint = "${num(station.lon)},${num(station.lat)}"
         val way = "$position;$waypoint;${num(rejoin.lon)},${num(rejoin.lat)}"
         val query = "overview=full&geometries=polyline6&steps=false&continue_straight=false" +
             "&bearings=$bearing,45;;$rejoinBearing,45&radiuses=35;100;35"
-        // Keep the same public routing services as the main route, with at most one fallback.
+        var timedOut = false
         for (base in ROUTERS) {
             try {
                 val request = Request.Builder().url("$base$way?$query").header("User-Agent", Http.CONTACT_AGENT).build()
-                val j = withContext(Dispatchers.IO) {
+                val answer = withContext(Dispatchers.IO) {
                     paceFuelRequest()
+                    if (!beginRequest()) return@withContext FuelAccessResult.Budget
                     fuelRoutingClient.newCall(request).execute().use { response ->
-                        when {
-                            response.code == 429 -> throw FuelRoutingRateLimited()
-                            response.code == 400 -> JSONObject()
-                            !response.isSuccessful -> null
-                            else -> response.body?.string()?.let(::JSONObject)
-                        }
+                        if (response.code == 429) limitFuelRouting(response.header("Retry-After"))
+                        if (response.code == 408 || response.code == 504) timedOut = true
+                        if (!response.isSuccessful && response.code != 400) return@use FuelAccessResult.Unavailable()
+                        val j = response.body?.string()?.let(::JSONObject) ?: return@use FuelAccessResult.Unavailable()
+                        parseFuelAccess(j)
                     }
-                } ?: continue
-                val route = j.optJSONArray("routes")?.optJSONObject(0) ?: return null
-                val legs = route.optJSONArray("legs") ?: continue
-                val out = legs.optJSONObject(0) ?: continue
-                val back = legs.optJSONObject(1) ?: continue
-                val outKm = out.optDouble("distance") / 1000
-                val backKm = back.optDouble("distance") / 1000
-                val outMin = out.optDouble("duration") / 60
-                val backMin = back.optDouble("duration") / 60
-                if (listOf(outKm, backKm, outMin, backMin).all { it.isFinite() && it >= 0 }) {
-                    return FuelAccess(outKm, backKm, outMin, backMin,
-                        route.optString("geometry"))
                 }
+                if (answer !is FuelAccessResult.Unavailable) return answer
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: org.json.JSONException) {
+            } catch (_: java.io.InterruptedIOException) {
+                timedOut = true
             } catch (_: java.io.IOException) {
             }
         }
-        return null
+        return FuelAccessResult.Unavailable(timedOut)
+    }
+
+    internal fun parseFuelAccess(j: JSONObject): FuelAccessResult {
+        val code = j.optString("code")
+        if (code == "NoRoute" || code == "NoSegment") return FuelAccessResult.NoRoute
+        if (code != "Ok") return FuelAccessResult.Unavailable()
+        val points = j.optJSONArray("waypoints") ?: return FuelAccessResult.Unavailable()
+        if (points.length() != 3) return FuelAccessResult.Unavailable()
+        for ((index, max) in listOf(35.0, 100.0, 35.0).withIndex()) {
+            val distance = points.optJSONObject(index)?.optDouble("distance") ?: return FuelAccessResult.Unavailable()
+            if (!distance.isFinite() || distance < 0) return FuelAccessResult.Unavailable()
+            if (distance > max + 1) return FuelAccessResult.NoRoute
+        }
+        val route = j.optJSONArray("routes")?.optJSONObject(0) ?: return FuelAccessResult.Unavailable()
+        val legs = route.optJSONArray("legs") ?: return FuelAccessResult.Unavailable()
+        val out = legs.optJSONObject(0) ?: return FuelAccessResult.Unavailable()
+        val back = legs.optJSONObject(1) ?: return FuelAccessResult.Unavailable()
+        val outKm = out.optDouble("distance") / 1000
+        val backKm = back.optDouble("distance") / 1000
+        val outMin = out.optDouble("duration") / 60
+        val backMin = back.optDouble("duration") / 60
+        if (!listOf(outKm, backKm, outMin, backMin).all { it.isFinite() && it >= 0 }) return FuelAccessResult.Unavailable()
+        val shape = route.optString("geometry").takeIf { it.isNotBlank() } ?: return FuelAccessResult.Unavailable()
+        return FuelAccessResult.Routed(FuelAccess(outKm, backKm, outMin, backMin, shape))
     }
 
     private suspend fun osrmRoutes(
-        a: Place, b: Place, via: List<Place>, alternatives: Boolean = via.isEmpty(), fuelRouting: Boolean = false,
+        a: Place, b: Place, via: List<Place>, alternatives: Boolean = via.isEmpty(), fuelRouteRequest: (() -> Unit)? = null,
     ): List<RouteData> {
         val noRoute = "No road route found between these places"
         val way = (listOf(a) + via + listOf(b)).joinToString(";") { "${num(it.lon)},${num(it.lat)}" }
@@ -286,8 +329,16 @@ object PlanApi {
             for (alt in variants) {
                 try {
                     val url = base + "$way?overview=full&geometries=polyline6&annotations=distance,duration&steps=true$alt"
-                    if (fuelRouting) paceFuelRequest()
-                    val j = Http.json(Request.Builder().url(url).header("User-Agent", Http.CONTACT_AGENT).get().build()) as? JSONObject
+                    val request = Request.Builder().url(url).header("User-Agent", Http.CONTACT_AGENT).build()
+                    val j = if (fuelRouteRequest == null) Http.json(request) as? JSONObject else withContext(Dispatchers.IO) {
+                        paceFuelRequest()
+                        fuelRouteRequest()
+                        fuelItineraryClient.newCall(request).execute().use { response ->
+                            if (response.code == 429) limitFuelRouting(response.header("Retry-After"))
+                            if (!response.isSuccessful) throw ApiException(response.code, noRoute)
+                            response.body?.string()?.let { Http.parse(it) as? JSONObject }
+                        }
+                    }
                     val rs = j?.let { PlanParse.routes(it) }.orEmpty().filter { it.totalKm > 0.05 }
                     if (rs.isNotEmpty()) return rs.take(3)
                     last = ApiException(0, noRoute); done = true; break

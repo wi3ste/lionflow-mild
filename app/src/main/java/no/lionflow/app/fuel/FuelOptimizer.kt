@@ -27,26 +27,34 @@ internal data class FuelCandidate(
     val backFuel: Double,
     val shape: String = "",
     val rejoin: FuelRejoin? = null,
+    val entry: FuelRejoin? = null,
 ) {
     val key get() = projection.key
     val offer get() = projection.offer
     val station get() = projection.station
+    val entryKm get() = entry?.km ?: projection.roadKm
+    val entryMin get() = entry?.minutes ?: projection.roadMin
+    val entryFuel get() = entry?.fuel ?: projection.roadFuel
     val rejoinKm get() = rejoin?.km ?: projection.roadKm
     val rejoinFuel get() = rejoin?.fuel ?: projection.roadFuel
-    val detourKm get() = outKm + backKm - (rejoinKm - projection.roadKm)
-    val detourMin get() = outMin + backMin - ((rejoin?.minutes ?: projection.roadMin) - projection.roadMin)
-    val detourFuel get() = outFuel + backFuel - (rejoinFuel - projection.roadFuel)
-    val accessFuel get() = projection.roadFuel + outFuel
+    val detourKm get() = outKm + backKm - (rejoinKm - entryKm)
+    val detourMin get() = outMin + backMin - ((rejoin?.minutes ?: projection.roadMin) - entryMin)
+    val detourFuel get() = outFuel + backFuel - (rejoinFuel - entryFuel)
+    val accessFuel get() = entryFuel + outFuel
 
     companion object {
-        fun verified(candidate: FuelProjection, access: PlanApi.FuelAccess, maxDetour: Double, consumption: FuelConsumption, rejoin: FuelRejoin? = null): FuelCandidate? {
+        fun verified(
+            candidate: FuelProjection, access: PlanApi.FuelAccess, maxDetour: Double, consumption: FuelConsumption,
+            rejoin: FuelRejoin? = null, entry: FuelRejoin? = null,
+        ): FuelCandidate? {
             val distance = access.outKm + access.backKm
-            if (distance - ((rejoin?.km ?: candidate.roadKm) - candidate.roadKm) > maxDetour) return null
-            // Reject a snap that unexpectedly jumps onto the nearby through road.
-            if (distance + 0.03 < candidate.straightKm * 1.5) return null
+            val replaced = (rejoin?.km ?: candidate.roadKm) - (entry?.km ?: candidate.roadKm)
+            if (replaced < 0 || distance - replaced > maxDetour + EPS) return null
+            // A snapped loop must at least be consistent with reaching the station and returning.
+            if (replaced == 0.0 && distance + 0.03 < candidate.straightKm * 1.5) return null
             fun estimate(km: Double, minutes: Double) = consumption.amount(km, if (minutes > 0) km * 60 / minutes else 45.0)
             return FuelCandidate(candidate, access.outKm, access.backKm, access.outMin, access.backMin,
-                estimate(access.outKm, access.outMin), estimate(access.backKm, access.backMin), access.shape, rejoin)
+                estimate(access.outKm, access.outMin), estimate(access.backKm, access.backMin), access.shape, rejoin, entry)
         }
     }
 }
@@ -100,7 +108,7 @@ internal object FuelOptimizer {
                 if (roadFuel == 0.0) 0.0 else referencePrice?.times(roadFuel))
         }
         val nodes = candidates.filter { it.key !in excluded && it.projection.roadFuel <= roadFuel + EPS }
-            .distinctBy { it.key }.sortedWith(compareBy<FuelCandidate> { it.projection.roadKm }.thenBy { it.key })
+            .distinctBy { it.key }.sortedWith(compareBy<FuelCandidate> { it.entryKm }.thenBy { it.key })
         if (!nodes.map { it.key }.containsAll(locked.keys)) return null
         val terminal = nodes.size
         val labels = Array(terminal) { java.util.TreeMap<Double, Label>() }
@@ -143,7 +151,7 @@ internal object FuelOptimizer {
             } else arrivals
             val last = nextLock(index)
             val uses = (index + 1..last).filter { next -> next == terminal ||
-                (nodes[next].projection.roadKm + EPS >= node.rejoinKm &&
+                (nodes[next].entryKm + EPS >= node.rejoinKm &&
                     (nodes[next].station.id != node.station.id || nodes[next].projection.roadKm - node.projection.roadKm > 0.1))
             }.map { next -> next to (access(next) - node.rejoinFuel + node.backFuel) }
                 .filter { (_, needed) -> needed + reserve <= capacity + EPS }
@@ -162,7 +170,7 @@ internal object FuelOptimizer {
                 for (departure in departures) {
                     val amount = departure - arrival.remaining
                     if (amount < 0.01 - EPS || departure > capacity + EPS) continue
-                    val stop = FuelStop(node, arrival.remaining, amount, node.projection.roadMin + arrival.extraMin + node.outMin)
+                    val stop = FuelStop(node, arrival.remaining, amount, node.entryMin + arrival.extraMin + node.outMin)
                     val extra = node.detourMin + stop.serviceMin
                     val score = arrival.score + cost(strategy, stop, referencePrice, now)
                     for ((next, needed) in uses) {

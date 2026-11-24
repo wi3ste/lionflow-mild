@@ -132,7 +132,7 @@ class FuelMapRenderingTest {
         val first = option(0)
         val second = option(1)
         val result = FuelTripResult(request, road, 0.02, emptyList(), 1.5, now, true, first, prediction,
-            FuelSearchSummary(2, 2, 2, 1.5 to 1.5, 2, false), mapOf(FuelStrategy.BALANCED to first, FuelStrategy.FAST to second))
+            FuelSearchSummary(2, 2, 2, 2, false), mapOf(FuelStrategy.BALANCED to first, FuelStrategy.FAST to second))
         compose.runOnUiThread {
             val loaded = checkNotNull(style)
             assertNotNull(loaded.getLayer(COUNTS))

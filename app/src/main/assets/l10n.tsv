@@ -1119,3 +1119,34 @@ Check more stations					Verifica altri distributori
 Limited historical support					Previsione basata su pochi viaggi
 Waiting briefly for driving history…					Attesa breve dello storico dei viaggi…
 Recalculate with updated history					Ricalcola con lo storico aggiornato
+Checking additional stations…					Verifica di altri distributori…
+Waiting for the router retry window					Il servizio di routing ha chiesto di attendere prima di riprovare
+No more stations in the corridor					Nessun altro distributore da verificare nel corridoio
+Better fuel options found					Trovate soluzioni di rifornimento migliori
+No better plan found in this group					Nessun piano migliore in questo gruppo
+Could not finish checking additional stations					Impossibile completare la verifica degli altri distributori
+Additional station check cancelled					Verifica di altri distributori annullata
+Additional stations checked					Nuovi distributori esaminati
+Stations accepted					Distributori verificati con successo
+Stations retried					Distributori ritentati
+Stations remaining to examine					Candidati ancora da esaminare
+Itinerary routing requests					Richieste di routing per l'itinerario
+Cached itinerary route responses					Itinerari recuperati dalla cache
+Station routing requests					Richieste di routing per i distributori
+Cached station route responses					Risposte di routing dei distributori recuperate dalla cache
+Corridor quotes (min / median / max)					Prezzi nel corridoio (min / mediana / max)
+Shortlisted quotes (min / median / max)					Prezzi dei preselezionati (min / mediana / max)
+Verified quotes (min / median / max)					Prezzi dei verificati (min / mediana / max)
+Candidate verification details					Dettagli sulla verifica dei candidati
+Straight-line distance					Distanza in linea d'aria
+Added road distance					Distanza stradale aggiuntiva
+Verification outcomes					Esiti della verifica
+Promising stations skipped					Distributori promettenti esclusi
+Road verified					Accesso stradale verificato
+No route in checked windows					Nessun accesso attraverso i punti provati
+Exceeds added-distance limit					Supera il limite di distanza aggiuntiva
+Inconsistent station snap					Posizione del distributore incoerente con il percorso
+Router unavailable					Servizio di routing indisponibile
+Router timeout					Tempo di risposta del routing scaduto
+Router rate limit					Limite di richieste del servizio di routing
+Verification budget reached					Raggiunto il limite di verifiche per questo gruppo

@@ -7,13 +7,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import no.lionflow.app.LionFlowApp
@@ -29,10 +24,6 @@ import kotlin.math.abs
 import java.util.Locale
 import no.lionflow.app.BuildConfig
 import android.util.Log
-import kotlin.math.atan2
-import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.roundToInt
 
 internal data class FuelTripRequest(
     val from: Place,
@@ -85,9 +76,17 @@ internal data class FuelSearchSummary(
     val corridor: Int,
     val verified: Int,
     val examined: Int,
-    val priceRange: Pair<Double, Double>?,
     val fresh: Int,
     val canExtend: Boolean,
+    val corridorQuotes: FuelQuoteStats? = null,
+    val queuedQuotes: FuelQuoteStats? = null,
+    val verifiedQuotes: FuelQuoteStats? = null,
+    val unexamined: Int = 0,
+    val requests: Int = 0,
+    val cacheHits: Int = 0,
+    val routeRequests: Int = 0,
+    val routeCacheHits: Int = 0,
+    val rows: List<FuelSearchRow> = emptyList(),
 )
 
 internal data class FuelHistoryInput(val trips: List<Trip>, val routes: List<Route>, val loading: Boolean)
@@ -116,15 +115,20 @@ internal class FuelPlanner(
     private data class RouteKey(val coordinates: List<Pair<Double, Double>>)
     private data class SearchKey(val route: RouteKey, val grade: FuelGrade, val service: FuelServiceFilter, val detour: Double)
     private val routes = FuelMemo<RouteKey, RouteData>(6, 6 * 3600)
-    private val roadAccess = FuelMemo<String, PlanApi.FuelAccess>(512, 24 * 3600)
+    private val verifier = FuelRoadVerifier()
+    private data class SearchContext(
+        val search: FuelStationSearch, val fuel: DoubleArray, val windows: FuelAccessWindows,
+    )
+    private var context: SearchContext? = null
     private var lastSearch: SearchKey? = null
-    private var lastRequest: FuelTripRequest? = null
     private var lastTrips: List<Trip> = emptyList()
     private var lastRoutes: List<Route> = emptyList()
-    private var priorProjections = emptyList<String>()
+    var extensionProgress by mutableStateOf<FuelExtensionProgress?>(null)
+        private set
+    var extensionMessage by mutableStateOf<String?>(null)
+        private set
     var backtest by mutableStateOf<List<FuelBacktest>?>(null)
         private set
-    private var routingRetryAt = Instant.MIN
 
     fun selectStrategy(strategy: FuelStrategy) {
         val current = result ?: return
@@ -156,7 +160,7 @@ internal class FuelPlanner(
         error = null
         vehicleKey = vin
         lastSearch = null
-        lastRequest = null
+        context = null
         lastTrips = emptyList()
         lastRoutes = emptyList()
         backtest = null
@@ -182,6 +186,7 @@ internal class FuelPlanner(
 
     fun cancel() {
         work?.cancel()
+        if (busy == "Checking additional stations…") extensionMessage = "Additional station check cancelled"
         busy = null
         if (result?.plan == null) editing = true
     }
@@ -193,8 +198,64 @@ internal class FuelPlanner(
     }
 
     fun searchMore() {
-        val request = result?.request ?: lastRequest ?: return
-        calculate(request, extend = true)
+        if (busy != null) return
+        val previous = result ?: return
+        val base = context ?: return
+        extensionMessage = null
+        extensionProgress = null
+        busy = "Checking additional stations…"
+        work = scope.launch {
+            try {
+                val now = Instant.now()
+                val active = if (base.search.corridorSize == 0 && previous.plan == null) {
+                    val index = (catalog.state.value.snapshot ?: catalog.refresh().snapshot)?.index
+                    val projections = withContext(Dispatchers.Default) {
+                        index?.let {
+                            FuelCorridor.find(previous.road, base.fuel, it, previous.request.grade, previous.request.service,
+                                corridorWidth(previous.request.maxDetour), now)
+                        }.orEmpty()
+                    }
+                    base.copy(search = FuelStationSearch(projections, previous.road.totalKm)).also { context = it }
+                } else base
+                val search = active.search
+                val batch = withContext(Dispatchers.Default) {
+                    search.extension(previous.request.constraints, previous.roadFuel,
+                        previous.comparisons[FuelStrategy.ECONOMY] ?: previous.plan, now)
+                }
+                val budget = FuelProbeBudget(14)
+                val limit = previous.request.maxDetour
+                val progress = search.check(batch, budget, Instant::now, { projection ->
+                    verifier.verify(projection, active.windows.forStation(projection), previous.prediction, limit, budget)
+                }) { extensionProgress = it }
+                val candidates = search.candidates
+                val revised = if (candidates.size > previous.candidates.size) optimize(previous.road, previous.roadFuel, previous.request, candidates,
+                    previous.priceTime, previous.reference ?: search.corridorPrices?.median, locked, excluded) else emptyMap()
+                val comparisons = betterFuelPlans(previous.comparisons, revised)
+                val current = result ?: previous
+                val summary = search.summary(Instant.now()).copy(routeRequests = previous.search.routeRequests,
+                    routeCacheHits = previous.search.routeCacheHits)
+                result = current.copy(candidates = candidates, comparisons = comparisons,
+                    plan = comparisons[current.request.constraints.strategy] ?: current.plan,
+                    reference = previous.reference ?: search.corridorPrices?.median, search = summary,
+                    limited = summary.canExtend || summary.verified < summary.corridor)
+                extensionMessage = when {
+                    comparisons != previous.comparisons -> "Better fuel options found"
+                    batch.isEmpty() && !search.hasMore -> "No more stations in the corridor"
+                    verifier.throttled -> "Waiting for the router retry window"
+                    progress.examined == 0 && progress.retried == 0 -> "Waiting for the router retry window"
+                    else -> "No better plan found in this group"
+                }
+                if (result?.plan != null) error = null
+                if (BuildConfig.DEBUG) Log.d("FuelPlanner", "extension=$progress requests=${budget.requests} hits=${budget.hits} " +
+                    "verified=${summary.verified} unexamined=${summary.unexamined}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) Log.w("FuelPlanner", "Extension failed", e)
+                extensionMessage = "Could not finish checking additional stations"
+            }
+            busy = null
+        }
     }
 
     fun historyChanged(trips: List<Trip>) = result?.request?.manualConsumption == null && trips != lastTrips
@@ -216,7 +277,7 @@ internal class FuelPlanner(
         }
     }
 
-    fun calculate(request: FuelTripRequest, extend: Boolean = false) {
+    fun calculate(request: FuelTripRequest) {
         work?.cancel()
         val end = if (request.round) request.from else request.to
         val via = if (request.round) request.via + request.to else request.via
@@ -226,15 +287,16 @@ internal class FuelPlanner(
         if (!reuse) {
             locked = emptyMap()
             excluded = emptySet()
-            priorProjections = emptyList()
+            context = null
         }
+        extensionProgress = null
+        extensionMessage = null
         val constraintsLocked = locked
         val exclusions = excluded
-        val published = result?.takeIf { extend && reuse }
-        result = published
+        val previous = result?.takeIf { reuse }
+        result = null
         backtest = null
         error = null
-        lastRequest = request
         busy = "Routing the fuel trip…"
         editing = false
         work = scope.launch {
@@ -247,11 +309,12 @@ internal class FuelPlanner(
             try {
                 val now = Instant.now()
                 val cachedRoad = routes.get(routeKey, now)
+                var routeRequests = 0
                 val road = timed("route") {
-                    cachedRoad ?: PlanApi.fuelRoute(request.from, end, via).also { routes.put(routeKey, it, now) }
+                    cachedRoad ?: PlanApi.fuelRoute(request.from, end, via) { routeRequests++ }.also { routes.put(routeKey, it, now) }
                 }
-                val cacheOnly = reuse && cachedRoad != null && !extend
-                val searchRequest = request
+                val cachedSearch = context?.search?.takeIf { reuse && cachedRoad != null }
+                val cacheOnly = cachedSearch != null
                 val prediction = timed("consumption") {
                     if (request.manualConsumption == null && history().loading && history().trips.none { it.calibrationLPer100 != null }) {
                         busy = "Waiting briefly for driving history…"
@@ -275,84 +338,78 @@ internal class FuelPlanner(
                     catalog.state.value.snapshot ?: if (direct || cacheOnly) null else catalog.refresh().snapshot
                 }
                 val stations = snapshot?.index
-                val projections = timed("corridor") {
-                    if (stations == null || direct) emptyList() else withContext(Dispatchers.Default) {
-                        FuelCorridor.find(road, fuel, stations, request.grade, request.service, minOf(request.maxDetour / 2, 5.0), now)
-                            .filter { it.straightKm * 2 <= request.maxDetour }
+                val search = timed("corridor") {
+                    withContext(Dispatchers.Default) {
+                        cachedSearch?.rebased(road, fuel, prediction, request.maxDetour) ?: FuelStationSearch(
+                            if (stations == null || direct) emptyList() else FuelCorridor.find(
+                                road, fuel, stations, request.grade, request.service, corridorWidth(request.maxDetour), now,
+                            ),
+                            road.totalKm,
+                        )
                     }
                 }
                 val reference = timed("prices") {
-                    withContext(Dispatchers.Default) {
-                        val local = projections.map { it.offer }.filter { it.fresh(now) }.mapNotNull { it.price }
-                        val national = if (local.isEmpty()) stations?.stations.orEmpty().mapNotNull {
+                    previous?.reference?.takeIf { cacheOnly } ?: search.corridorPrices?.median ?: withContext(Dispatchers.Default) {
+                        val national = stations?.stations.orEmpty().mapNotNull {
                             it.offer(request.grade, request.service, now)?.takeIf { offer -> offer.fresh(now) }?.price
-                        } else emptyList()
-                        (local.ifEmpty { national }).sorted().let { it.getOrNull(it.size / 2) }
+                        }
+                        FuelQuoteStats.of(national)?.median
                     }
                 }
-                val remembered = if (cachedRoad == null) emptySet() else priorProjections.toSet()
-                val full = timed("shortlist") { shortlist(projections, searchRequest, required, now, extend) }
-                val retryUnavailable = extend && published?.plan == null && full.all { it.key in remembered }
-                val shortlist = if (cacheOnly) projections.filter { it.key in remembered } else {
-                    val previous = projections.filter { it.key in remembered }
-                    if (extend) previous + full.filter { it.key !in remembered }.take(16) else full
-                }
-                val forward = if (request.via.isEmpty() && !request.round && road.ferries.isEmpty()) {
-                    val options = shortlist.filter { it.straightKm > 0.05 }
-                    (options.filter { it.key in remembered } + options.filter { it.key !in remembered }.take(4))
-                        .mapNotNull { item ->
-                        findRejoin(road, fuel, item, request.maxDetour)?.let { item.key to it }
-                    }.toMap()
-                } else emptyMap()
-                val verified = mutableListOf<FuelCandidate>()
-                val rejected = mutableMapOf<String, Int>()
-                var checked = 0
-                var probes = 0
-                var firstPlan: Long? = null
-                val checkedKeys = linkedSetOf<String>().apply { if (reuse) addAll(remembered) }
+                val windows = FuelAccessWindows(road, fuel, protectedFuelKm(road, via), request.maxDetour)
+                context = SearchContext(search, fuel, windows)
                 lastSearch = key
-                suspend fun wave(batch: List<FuelProjection>): Map<FuelStrategy, Double> {
-                    busy = "Checking fuel stations… $checked/${shortlist.size}"
-                    verified += timed("verify") {
-                        verify(batch, request, prediction, now, forward, rejected, cacheOnly,
-                            if (retryUnavailable) emptySet() else remembered) { probes++ }
+                val shortlist = timed("shortlist") {
+                    if (direct || cacheOnly) emptyList() else withContext(Dispatchers.Default) {
+                        search.automatic(request.constraints, required, now)
                     }
-                    checked += batch.size
-                    checkedKeys += batch.map { it.key }
-                    priorProjections = checkedKeys.toList()
-                    val comparisons = timed("solve") {
+                }
+                val budget = FuelProbeBudget(16)
+                var firstPlan: Long? = null
+                suspend fun wave(batch: List<FuelSearchChoice>): Map<FuelStrategy, Double> {
+                    timed("verify") {
+                        search.check(batch, budget, Instant::now, { projection ->
+                            verifier.verify(projection, windows.forStation(projection), prediction, request.maxDetour, budget)
+                        }) { progress ->
+                            busy = "Checking fuel stations… ${progress.examined}/${progress.planned}"
+                        }
+                    }
+                    val verified = search.candidates
+                    val existing = result
+                    val revised = timed("solve") {
                         optimize(road, required, request, verified, now, reference, constraintsLocked, exclusions)
                     }
+                    val comparisons = betterFuelPlans(existing?.comparisons.orEmpty(), revised)
                     val selected = result?.request?.constraints?.strategy ?: request.constraints.strategy
                     val active = request.copy(constraints = request.constraints.copy(strategy = selected))
                     val plan = comparisons[selected]
-                    if (plan != null || result == null) timed("publish") {
-                        val quotes = verified.mapNotNull { it.offer.price }
-                        result = FuelTripResult(active, road, required, verified.toList(), reference, now,
-                            !direct && projections.size > verified.size, plan, prediction,
-                            FuelSearchSummary(projections.size, verified.size, checked, quotes.minOrNull()?.let { it to quotes.max() },
-                                verified.count { it.offer.price != null && it.offer.fresh(now) },
-                                !direct && when {
-                                    plan == null && (cacheOnly || "rate-limit" in rejected || "routing-unavailable" in rejected) -> true
-                                    extend -> full.any { it.key !in checkedKeys }
-                                    else -> projections.size > checkedKeys.size
-                                }), comparisons)
+                    timed("publish") {
+                        val summary = search.summary(now)
+                        // An explicit check can load the corridor after a previously direct trip.
+                        val canExtend = !direct && (summary.canExtend || (cacheOnly && plan == null && summary.corridor == 0))
+                        result = FuelTripResult(active, road, required, verified, reference, now,
+                            !direct && (canExtend || summary.verified < summary.corridor), plan, prediction,
+                            summary.copy(canExtend = canExtend, routeRequests = routeRequests, routeCacheHits = if (cachedRoad != null) 1 else 0), comparisons)
                         if (plan != null && firstPlan == null) firstPlan = (System.nanoTime() - started) / 1_000_000
                     }
                     return comparisons.mapValues { it.value.score }
                 }
-                if (cacheOnly) wave(shortlist) else searchFuelWaves(shortlist, firstFuelWave(required, request.constraints), ::wave)
+                if (cacheOnly) wave(emptyList()) else searchFuelWaves(shortlist, initialWave = 1, stop = {
+                    budget.exhausted || verifier.throttled
+                }, evaluate = ::wave)
                 if (BuildConfig.DEBUG) Log.d("FuelPlanner", "timingMs=$timings roadHit=${cachedRoad != null} cacheOnly=$cacheOnly " +
-                    "firstPlanSearchMs=$firstPlan probes=$probes corridor=${projections.size} tested=$checked " +
-                    "verified=${verified.size} rejected=$rejected scores=${result?.comparisons?.mapValues { it.value.score }}")
+                    "firstPlanMs=$firstPlan accessRequests=${budget.requests} hits=${budget.hits} " +
+                    "corridor=${search.corridorSize} verified=${search.candidates.size}")
                 if (result?.plan == null) error = when {
                     cacheOnly -> "The cached stations cannot cover the new fuel settings."
                     stations == null && !direct -> "Fuel data unavailable. Refresh stations and try again."
-                    projections.isEmpty() -> "No compatible fuel stations found along this route."
+                    search.corridorSize == 0 -> "No compatible fuel stations found along this route."
                     else -> "No feasible fuel plan found. Check your fuel, reserve and detour limit."
                 }
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: PlanApi.FuelRoutingRateLimited) {
+                error = "Waiting for the router retry window"
             } catch (e: Exception) {
                 if (BuildConfig.DEBUG) Log.w("FuelPlanner", "Could not calculate the fuel trip", e)
                 error = "Could not calculate the road route. Check your connection and try again."
@@ -434,80 +491,8 @@ internal class FuelPlanner(
         }
     }
 
-    private fun shortlist(projections: List<FuelProjection>, request: FuelTripRequest, required: Double, now: Instant, extend: Boolean): List<FuelProjection> {
-        val (capacity, initial, reserve) = request.constraints
-        val range = capacity - reserve
-        val budget = if (extend) 36 else 6 + 3 * ceil(required / range).toInt().coerceIn(1, 4)
-        val first = projections.filter { it.roadFuel <= initial - reserve + 1e-7 || it.roadKm < 0.01 }
-        val opening = FuelCorridor.shortlist(first, range, now, 2)
-        return (opening + FuelCorridor.shortlist(projections, range, now, budget)).distinctBy { it.key }.take(budget)
-    }
-
-    private data class ForwardAccess(val place: Place, val bearing: Int, val progress: FuelRejoin)
-
-    private fun findRejoin(road: RouteData, fuel: DoubleArray, candidate: FuelProjection, limit: Double): ForwardAccess? {
-        val ahead = (candidate.straightKm * 2).coerceIn(0.6, minOf(3.0, maxOf(0.6, limit)))
-        val km = candidate.roadKm + ahead
-        val idx = road.km.binarySearch(km).let { if (it >= 0) it else -it - 1 }
-        if (idx !in 1 until road.size || road.km[idx] <= road.km[idx - 1]) return null
-        val ratio = (km - road.km[idx - 1]) / (road.km[idx] - road.km[idx - 1])
-        fun at(series: DoubleArray) = series[idx - 1] + ratio * (series[idx] - series[idx - 1])
-        val lat = at(road.lat)
-        val lon = at(road.lon)
-        val bearing = (Math.toDegrees(atan2((road.lon[idx] - road.lon[idx - 1]) * cos(Math.toRadians(lat)),
-            road.lat[idx] - road.lat[idx - 1])).roundToInt() + 360) % 360
-        return ForwardAccess(Place("", "", lat, lon), bearing, FuelRejoin(km, at(road.min), at(fuel)))
-    }
-
-    private suspend fun verify(
-        shortlist: List<FuelProjection>, request: FuelTripRequest, prediction: FuelConsumption, now: Instant,
-        forward: Map<String, ForwardAccess>, rejected: MutableMap<String, Int>, cacheOnly: Boolean, remembered: Set<String>, onProbe: () -> Unit,
-    ): List<FuelCandidate> = coroutineScope {
-        val requests = Semaphore(2)
-        shortlist.map { candidate ->
-            async {
-                requests.withPermit {
-                    val station = candidate.station
-                    suspend fun access(rejoin: ForwardAccess?): PlanApi.FuelAccess? {
-                        val key = "${station.id}|${station.lat}|${station.lon}|${candidate.anchor.lat}|${candidate.anchor.lon}|${candidate.bearing}|" +
-                            rejoin?.let { "${it.place.lat}|${it.place.lon}|${it.bearing}" }.orEmpty()
-                        val cached = roadAccess.get(key, now)
-                        if (cached != null) return cached
-                        if (cacheOnly || candidate.key in remembered || Instant.now() < routingRetryAt) return null
-                        return try {
-                            onProbe()
-                            withTimeoutOrNull(12_000) {
-                                PlanApi.fuelAccess(candidate.anchor, Place(station.title, station.location, station.lat, station.lon),
-                                    candidate.bearing, rejoin?.place ?: candidate.anchor, rejoin?.bearing ?: candidate.bearing)
-                            }
-                        } catch (_: PlanApi.FuelRoutingRateLimited) {
-                            routingRetryAt = Instant.now().plusSeconds(60)
-                            null
-                        }.also { if (it != null) roadAccess.put(key, it, now) }
-                    }
-                    val loop = access(null)
-                    val original = loop?.let { FuelCandidate.verified(candidate, it, request.maxDetour, prediction) }
-                    val next = forward[candidate.key]
-                    val through = next?.takeIf { original == null || original.detourMin > 8 }?.let { access(it) }
-                    val later = through?.let { FuelCandidate.verified(candidate, it, request.maxDetour, prediction, next.progress) }
-                    val chosen = later?.takeIf {
-                        original == null || (it.outFuel <= original.outFuel && it.detourFuel <= original.detourFuel &&
-                            it.detourMin <= original.detourMin && it.backFuel <= original.backFuel)
-                    } ?: original
-                    if (chosen == null) {
-                        val reason = when {
-                            Instant.now() < routingRetryAt -> "rate-limit"
-                            loop == null && through == null -> "routing-unavailable"
-                            listOfNotNull(loop, through).any { it.outKm + it.backKm > request.maxDetour } -> "distance-limit"
-                            else -> "invalid-snap"
-                        }
-                        rejected[reason] = rejected.getOrDefault(reason, 0) + 1
-                    }
-                    chosen
-                }
-            }
-        }.awaitAll().filterNotNull()
-    }
+    // A lateral offset is a search radius, not a test of the extra road distance.
+    private fun corridorWidth(limit: Double) = limit.coerceIn(0.6, 12.0)
 
     private suspend fun optimize(
         road: RouteData, roadFuel: Double, request: FuelTripRequest, candidates: List<FuelCandidate>,
