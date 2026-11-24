@@ -40,4 +40,4 @@ jobs:
           target: google_apis
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=no.lionflow.app.ui.screens.FuelMapRenderingTest --no-daemon
+          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=no.lionflow.app.ui.screens.FuelMapRenderingTest --no-daemon || { adb logcat -d -s FuelMap FuelMapTest Mbgl MapLibre AndroidRuntime; cat app/build/outputs/androidTest-results/connected/debug/*/*.xml; exit 1; }
