@@ -3,6 +3,7 @@ package no.lionflow.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import no.lionflow.app.data.AppSettings
+import no.lionflow.app.fuel.FuelCandidate
+import no.lionflow.app.fuel.FuelPlan
 import no.lionflow.app.fuel.FuelConstraints
 import no.lionflow.app.fuel.FuelConsumption
 import no.lionflow.app.fuel.FuelGrade
@@ -284,7 +287,7 @@ private fun FuelMetric(label: String, value: String) {
 }
 
 @Composable
-private fun FuelProgress(p: FuelPlanner) {
+internal fun FuelProgress(p: FuelPlanner) {
     val c = LocalLf.current
     p.busy?.let { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Busy(); Text(it, style = Type.small, color = c.muted) } }
     p.error?.let { Text(it, style = Type.small, color = c.danger) }
@@ -297,10 +300,44 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, clickSta
     val c = LocalLf.current
     val platform = LocalPlatform.current
     val unit = result.request.grade.unit
-    var editingStop by remember { mutableStateOf<FuelStop?>(null) }
+    var editingStop by remember(result) { mutableStateOf<FuelStop?>(null) }
+    var showComparison by remember { mutableStateOf(false) }
+    val strategy = result.request.constraints.strategy
+    if (showComparison) {
+        val fastest = result.comparisons[FuelStrategy.FAST]
+        val equivalent = result.comparisons.entries.groupBy { (_, comparison) ->
+            comparison.stops.map { it.candidate.key to kotlin.math.round(it.purchased * 100) }
+        }.values.filter { it.size > 1 }
+        AlertDialog(onDismissRequest = { showComparison = false }, containerColor = c.card,
+            title = { Text("Compare fuel strategies", color = c.text) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    for (group in equivalent) {
+                        Text("Same solution", style = Type.small, color = c.muted)
+                        androidx.compose.material3.Text(group.joinToString(" · ") { L10n.tr(it.key.label) }, color = c.text, style = Type.small)
+                    }
+                    for ((choice, comparison) in result.comparisons) {
+                        Text(choice.label, color = c.text, style = Type.stat)
+                        FuelMetric("Estimated value of fuel consumed", fuelMoney(comparison.usedCost))
+                        FuelMetric("Estimated spend on refuelling", fuelMoney(comparison.purchaseCost))
+                        FuelMetric("Estimated total time", planDuration(comparison.totalMin))
+                        FuelMetric("Fuel stops", comparison.stops.size.toString())
+                        FuelMetric("Extra distance", fmtDistance(comparison.detourKm, settings))
+                        FuelMetric("Extra time for fuel stops", signedDuration(comparison.extraMin))
+                        FuelMetric("Savings vs fastest (fuel purchases)", fuelMoney(difference(fastest?.purchaseCost, comparison.purchaseCost)))
+                        if (choice == strategy) Text("Selected strategy", color = c.accentInk, style = Type.small)
+                        else SecondaryButton("Select strategy") { p.selectStrategy(choice); showComparison = false }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showComparison = false }) { Text("Close", color = c.accentInk) } },
+        )
+    }
     fun quantity(value: Double) = "${fuelNumber(value, 2)} $unit"
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Fuel trip", style = Type.stat, color = c.text)
+        FuelMetric("Selected strategy", L10n.tr(strategy.label))
+        SecondaryButton("Compare fuel strategies") { showComparison = true }
         FuelMetric("Total distance", fmtDistance(plan.totalKm, settings))
         FuelMetric("Driving time", planDuration(plan.driveMin))
         FuelMetric("Estimated total time", planDuration(plan.totalMin))
@@ -311,7 +348,7 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, clickSta
         FuelMetric("Estimated spend on refuelling", fuelMoney(plan.purchaseCost))
         FuelMetric("Fuel stops", plan.stops.size.toString())
         FuelMetric("Extra distance", fmtDistance(plan.detourKm, settings))
-        FuelMetric("Extra time for fuel stops", planDuration(plan.extraMin))
+        FuelMetric("Extra time for fuel stops", signedDuration(plan.extraMin))
         FuelMetric("Fuel at arrival", quantity(plan.remaining))
         if (plan.stops.isEmpty()) Text("No refuelling needed", color = c.muted, style = Type.small)
         if (result.limited) Text("Plan based on a limited set of road-verified stations.", color = c.muted, style = Type.tiny)
@@ -333,9 +370,15 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, clickSta
                 FuelMetric("Fuel at arrival", quantity(stop.arrival))
                 FuelMetric("Buy", quantity(stop.purchased))
                 FuelMetric("Fuel after refuelling", quantity(stop.departure))
+                Text(when {
+                    stop.candidate.key in p.locked -> "Station kept by your edit"
+                    strategy == FuelStrategy.ECONOMY -> "Part of the lowest estimated refuelling cost found"
+                    strategy == FuelStrategy.FAST -> "Part of the fastest feasible plan found"
+                    else -> "Part of the best cost and time trade-off found"
+                }, color = c.muted, style = Type.tiny)
                 FuelMetric("Unit price", fuelPrice(offer, result.priceTime))
                 FuelMetric("Refuelling cost", fuelMoney(stop.cost, offer.currency))
-                FuelMetric("Road detour", "${fmtDistance(stop.candidate.detourKm, settings)} · ${planDuration(stop.candidate.detourMin)}")
+                FuelMetric("Road detour", "${fmtDistance(stop.candidate.detourKm, settings)} · ${signedDuration(stop.candidate.detourMin)}")
                 FuelMetric("Service", offer.service?.label?.let(L10n::tr) ?: L10n.tr("Unknown"))
                 FuelMetric("Price reported", offer.reportedAt?.let(::fuelDate) ?: L10n.tr("Unknown"))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -353,21 +396,31 @@ internal fun FuelTripResultPanel(p: FuelPlanner, settings: AppSettings, clickSta
     }
     editingStop?.let { stop ->
         var amount by remember(stop) { mutableStateOf(p.locked[stop.candidate.key]?.amount?.toString().orEmpty()) }
-        val taken = plan.stops.map { it.candidate.key }.toSet()
-        val alternative = result.candidates.asSequence().filter { it.key !in taken && it.station.id != stop.candidate.station.id }
-            .sortedBy { kotlin.math.abs(it.projection.roadKm - stop.candidate.projection.roadKm) }.distinctBy { it.station.id }.take(4).toList()
+        var alternatives by remember(stop) { mutableStateOf<List<Pair<FuelCandidate, FuelPlan>>?>(null) }
+        LaunchedEffect(stop) { alternatives = p.alternatives(stop) }
         AlertDialog(onDismissRequest = { editingStop = null }, containerColor = c.card,
             title = { Text("Edit fuel stop", color = c.text) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     FuelNumber(L10n.tr("Fixed purchase (optional)") + " ($unit)", amount, { amount = it })
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         if (stop.candidate.key in p.locked) TextButton(onClick = { editingStop = null; p.editStops(stop, unlock = true) }) { Text("Unlock", color = c.accentInk) }
                         TextButton(onClick = { editingStop = null; p.editStops(stop, remove = true) }) { Text("Remove", color = c.danger) }
                     }
-                    if (alternative.isNotEmpty()) Text("Replace with a verified station", color = c.muted, style = Type.small)
-                    for (candidate in alternative) DropdownMenuItem(
-                        text = { androidx.compose.material3.Text("${stationName(candidate.station)} · ${fuelPrice(candidate.offer, result.priceTime)}", color = c.text, style = Type.small) },
+                    val options = alternatives
+                    Text(when {
+                        options == null -> "Checking feasible alternatives…"
+                        options.isEmpty() -> "No feasible alternatives among verified stations"
+                        else -> "Replace with a verified station"
+                    }, color = c.muted, style = Type.small)
+                    for ((candidate, revised) in options.orEmpty()) DropdownMenuItem(
+                        text = {
+                            Column {
+                                androidx.compose.material3.Text("${stationName(candidate.station)} · ${fuelPrice(candidate.offer, result.priceTime)}", color = c.text, style = Type.small)
+                                FuelMetric("Change in refuelling cost", fuelMoney(difference(revised.purchaseCost, plan.purchaseCost)))
+                                FuelMetric("Change in trip time", signedDuration(revised.totalMin - plan.totalMin))
+                            }
+                        },
                         onClick = { editingStop = null; p.editStops(stop, replacement = candidate) },
                     )
                 }
@@ -390,3 +443,9 @@ internal fun fuelPrice(offer: FuelOffer?, now: Instant): String {
     val value = "${fuelMoney(offer.price, offer.currency, 3)}/${offer.grade.unit}"
     return if (offer.fresh(now)) value else "$value · ${L10n.tr("Price may be outdated")}"
 }
+
+private fun difference(first: Double?, second: Double?): Double? =
+    if (first != null && second != null) first - second else null
+
+private fun signedDuration(minutes: Double): String =
+    (if (minutes < -0.5) "−" else "") + planDuration(kotlin.math.abs(minutes))

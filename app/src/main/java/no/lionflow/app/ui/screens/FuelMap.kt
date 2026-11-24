@@ -1,6 +1,9 @@
 package no.lionflow.app.ui.screens
 
 import android.graphics.PointF
+import android.util.Log
+import no.lionflow.app.BuildConfig
+import org.maplibre.android.style.layers.Layer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,23 +45,23 @@ import org.maplibre.geojson.Point
 import java.time.Instant
 import java.text.NumberFormat
 import java.util.Currency
-import no.lionflow.app.ui.l10n.L10n
 
-private const val STATIONS = "lf-fuel-stations"
-private const val CLUSTERS = "lf-fuel-clusters"
-private const val DOTS = "lf-fuel-dots"
+private const val TAG = "FuelMap"
+internal const val STATIONS = "lf-fuel-stations"
+internal const val CLUSTERS = "lf-fuel-clusters"
+internal const val DOTS = "lf-fuel-dots"
 private const val LABELS = "lf-fuel-labels"
 private const val STOPS = "lf-fuel-stops"
 private const val DETOURS = "lf-fuel-detours"
 private val NO_FEATURES = FeatureCollection.fromFeatures(emptyList<Feature>())
 
-internal data class FuelMapData(val stations: Map<String, FuelStation>, val geoJson: String)
+internal data class FuelMapData(val stations: Map<String, FuelStation>, val features: FeatureCollection)
 
-internal fun fuelMapData(snapshot: FuelSnapshot?, grade: FuelGrade, service: FuelServiceFilter, now: Instant): FuelMapData {
+internal fun fuelMapData(snapshot: FuelSnapshot?, grade: FuelGrade, service: FuelServiceFilter, now: Instant, locale: java.util.Locale): FuelMapData {
     val rows = snapshot?.index?.stations.orEmpty().mapNotNull { station ->
         val offer = station.offer(grade, service, now)
         if (offer != null || (station.offers.isEmpty() && service == FuelServiceFilter.ANY)) station to offer else null
-    }
+    }.distinctBy { it.first.id }
     val prices = rows.mapNotNull { it.second?.takeIf { offer -> offer.fresh(now) }?.price }.sorted()
     val threshold = prices.getOrNull(prices.size / 10)
     val formatters = mutableMapOf<String, NumberFormat>()
@@ -67,7 +70,7 @@ internal fun fuelMapData(snapshot: FuelSnapshot?, grade: FuelGrade, service: Fue
             addStringProperty("id", station.id)
             val label = offer?.price?.let {
                 formatters.getOrPut(offer.currency) {
-                    NumberFormat.getCurrencyInstance(L10n.locale).apply {
+                    NumberFormat.getCurrencyInstance(locale).apply {
                         currency = Currency.getInstance(offer.currency)
                         minimumFractionDigits = 3
                         maximumFractionDigits = 3
@@ -75,54 +78,70 @@ internal fun fuelMapData(snapshot: FuelSnapshot?, grade: FuelGrade, service: Fue
                 }.format(it)
             }
             addStringProperty("price", label ?: "—")
-            addBooleanProperty("cheap", threshold != null && offer?.fresh(now) == true && offer.price?.let { it <= threshold } == true)
-            addBooleanProperty("old", offer?.price != null && !offer.fresh(now))
+            addStringProperty("tone", when {
+                offer?.price != null && !offer.fresh(now) -> "old"
+                threshold != null && offer?.price?.let { it <= threshold } == true -> "cheap"
+                else -> "regular"
+            })
         }
-    }).toJson())
+    }))
 }
 
 internal fun addFuelLayers(style: Style) {
-    if (style.getSource(STATIONS) != null) return
-    style.addSource(GeoJsonSource(STATIONS, NO_FEATURES, GeoJsonOptions().withCluster(true).withClusterMaxZoom(12).withClusterRadius(48)))
-    style.addSource(GeoJsonSource(STOPS, NO_FEATURES))
-    style.addSource(GeoJsonSource(DETOURS, NO_FEATURES))
-    style.addLayer(LineLayer(DETOURS, DETOURS).withProperties(
-        PropertyFactory.lineColor("#DB7815"), PropertyFactory.lineWidth(4f), PropertyFactory.lineDasharray(arrayOf(1.5f, 1f))))
-    style.addLayer(CircleLayer(CLUSTERS, STATIONS).withFilter(Expression.has("point_count")).withProperties(
+    fun source(id: String, options: GeoJsonOptions? = null) {
+        if (style.getSource(id) != null) return
+        runCatching { style.addSource(if (options == null) GeoJsonSource(id) else GeoJsonSource(id, options)) }
+            .onFailure { Log.e(TAG, "Cannot add source $id", it) }
+    }
+    fun layer(id: String, create: () -> Layer) {
+        if (style.getLayer(id) != null) return
+        runCatching { style.addLayer(create()) }
+            .onFailure { Log.e(TAG, "Cannot add layer $id", it) }
+    }
+    source(STATIONS, GeoJsonOptions().withCluster(true).withClusterMaxZoom(11).withClusterRadius(48))
+    source(STOPS)
+    source(DETOURS)
+    val clustered = Expression.has("point_count")
+    val individual = Expression.not(clustered)
+    layer(DETOURS) { LineLayer(DETOURS, DETOURS).withProperties(
+        PropertyFactory.lineColor("#DB7815"), PropertyFactory.lineWidth(4f), PropertyFactory.lineDasharray(arrayOf(1.5f, 1f))) }
+    layer(CLUSTERS) { CircleLayer(CLUSTERS, STATIONS).withFilter(clustered).withProperties(
         PropertyFactory.circleColor("#805321"), PropertyFactory.circleRadius(16f), PropertyFactory.circleStrokeColor("#FFFFFF"),
-        PropertyFactory.circleStrokeWidth(1.5f)))
-    style.addLayer(SymbolLayer("lf-fuel-counts", STATIONS).withFilter(Expression.has("point_count")).withProperties(
-        PropertyFactory.textField(Expression.toString(Expression.get("point_count_abbreviated"))),
-        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textSize(12f), PropertyFactory.textAllowOverlap(true)))
-    style.addLayer(CircleLayer(DOTS, STATIONS).withFilter(Expression.not(Expression.has("point_count"))).withProperties(
+        PropertyFactory.circleStrokeWidth(1.5f)) }
+    layer("lf-fuel-counts") { SymbolLayer("lf-fuel-counts", STATIONS).withFilter(clustered).withProperties(
+        PropertyFactory.textField(Expression.toString(Expression.get("point_count"))),
+        PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textSize(12f), PropertyFactory.textAllowOverlap(true)) }
+    layer(DOTS) { CircleLayer(DOTS, STATIONS).withFilter(individual).withProperties(
         PropertyFactory.circleColor(Expression.switchCase(
-            Expression.get("cheap"), Expression.color(0xFF207445.toInt()),
-            Expression.get("old"), Expression.color(0xFF706864.toInt()),
+            Expression.eq(Expression.get("tone"), Expression.literal("cheap")), Expression.color(0xFF207445.toInt()),
+            Expression.eq(Expression.get("tone"), Expression.literal("old")), Expression.color(0xFF706864.toInt()),
             Expression.color(0xFFB76518.toInt()))),
-        PropertyFactory.circleRadius(6f), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(1.3f)))
-    style.addLayer(SymbolLayer(LABELS, STATIONS).withFilter(Expression.not(Expression.has("point_count"))).withProperties(
-        PropertyFactory.textField(Expression.get("price")), PropertyFactory.textSize(12f),
+        PropertyFactory.circleRadius(7f), PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(1.5f)) }
+    layer(LABELS) { SymbolLayer(LABELS, STATIONS).withFilter(individual).withProperties(
+        PropertyFactory.textField(Expression.toString(Expression.get("price"))), PropertyFactory.textSize(12f),
         PropertyFactory.textOffset(arrayOf(0f, 1.05f)), PropertyFactory.textColor("#272018"),
-        PropertyFactory.textHaloColor("#FFFFFF"), PropertyFactory.textHaloWidth(2f)).apply { minZoom = 12.5f })
-    style.addLayer(SymbolLayer(STOPS, STOPS).withProperties(
-        PropertyFactory.iconImage(Expression.get("icon")), PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
+        PropertyFactory.textHaloColor("#FFFFFF"), PropertyFactory.textHaloWidth(2f)).apply { minZoom = 12f } }
+    layer(STOPS) { CircleLayer(STOPS, STOPS).withProperties(
+        PropertyFactory.circleColor("#2F63DC"), PropertyFactory.circleRadius(11f),
+        PropertyFactory.circleStrokeColor("#FFFFFF"), PropertyFactory.circleStrokeWidth(3f)) }
 }
 
 internal fun updateFuelCatalogLayer(style: Style, mapData: FuelMapData?) {
     addFuelLayers(style)
     val source = style.getSourceAs<GeoJsonSource>(STATIONS) ?: return
-    if (mapData == null) source.setGeoJson(NO_FEATURES) else source.setGeoJson(mapData.geoJson)
+    source.setGeoJson(mapData?.features ?: NO_FEATURES)
+    if (BuildConfig.DEBUG) Log.d(TAG, "source=$STATIONS features=${mapData?.stations?.size ?: 0} " +
+        "layers=${listOf(CLUSTERS, DOTS, LABELS, STOPS).filter { style.getLayer(it) != null }}")
 }
 
 internal fun updateFuelPlanLayers(style: Style, result: FuelTripResult?) {
     if (result == null && style.getSource(STOPS) == null) return
     addFuelLayers(style)
     val stops = result?.plan?.stops.orEmpty()
-    style.getSourceAs<GeoJsonSource>(STOPS)?.setGeoJson(FeatureCollection.fromFeatures(stops.mapIndexed { i, stop ->
+    style.getSourceAs<GeoJsonSource>(STOPS)?.setGeoJson(FeatureCollection.fromFeatures(stops.map { stop ->
         val station = stop.candidate.station
         Feature.fromGeometry(Point.fromLngLat(station.lon, station.lat)).apply {
             addStringProperty("id", station.id)
-            addStringProperty("icon", "lf-stop-${(i + 1).takeIf { it <= 12 } ?: 0}")
         }
     }))
     style.getSourceAs<GeoJsonSource>(DETOURS)?.setGeoJson(FeatureCollection.fromFeatures(stops.mapNotNull { stop ->

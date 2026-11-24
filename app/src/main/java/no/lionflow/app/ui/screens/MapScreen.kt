@@ -49,6 +49,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import android.util.Log
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -150,10 +152,18 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             val grade = fp.grade
             val service = fp.service
             val snapshot = catalog.snapshot
-            fuelMap = withContext(Dispatchers.Default) { fuelMapData(snapshot, grade, service, priceClock) }
+            val locale = L10n.locale
+            fuelMap = withContext(Dispatchers.Default) { fuelMapData(snapshot, grade, service, priceClock, locale) }
+            if (no.lionflow.app.BuildConfig.DEBUG) Log.d("FuelMap", "catalog=${snapshot?.index?.stations?.size ?: 0} grade=$grade service=$service generated=${fuelMap?.stations?.size ?: 0}")
         } else fuelMap = null
     }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    val lookupFuel by rememberUpdatedState<(String) -> FuelStation?>({ id ->
+        if (!fuelVisible) null else activeFuelResult?.plan?.stops?.firstOrNull { it.candidate.station.id == id }?.candidate?.station
+            ?: fuelMap?.stations?.get(id)
+    })
+    val showFuel by rememberUpdatedState<(FuelStation?) -> Unit>({ selectedFuel = it })
+    var fallbackRequested by remember { mutableStateOf(false) }
     var styleLoaded by remember { mutableStateOf<Style?>(null) }
     var is3d by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("all") }
@@ -186,6 +196,8 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
 
     // Load map + style (re-load when theme changes)
     LaunchedEffect(styleUrl) {
+        styleLoaded = null
+        fallbackRequested = false
         mapView.getMapAsync { m ->
             val first = map == null
             map = m
@@ -197,13 +209,10 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 m.addOnMapClickListener { pt ->
                     val at: PointF = m.projection.toScreenLocation(pt)
                     val fuelHit = runCatching {
-                        fuelAt(m, at, { id ->
-                            fp.result?.takeIf { fp.open }?.plan?.stops?.firstOrNull { it.candidate.station.id == id }?.candidate?.station
-                                ?: fuelMap?.stations?.get(id)
-                        }) { selectedFuel = it; selected = null; selPlan = null }
-                    }.getOrDefault(false)
+                        fuelAt(m, at, lookupFuel) { showFuel(it); selected = null; selPlan = null }
+                    }.onFailure { Log.w("FuelMap", "Cannot query rendered markers", it) }.getOrDefault(false)
                     if (fuelHit) return@addOnMapClickListener true
-                    selectedFuel = null
+                    showFuel(null)
                     val planHit = try { m.queryRenderedFeatures(at, "lf-plan-stops", "lf-plan-chargers").firstOrNull()?.getStringProperty("id") } catch (_: Exception) { null }
                     if (planHit != null) { selPlan = planHit; selected = null; true }
                     else {
@@ -213,7 +222,13 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                         id != null
                     }
                 }
-                mapView.addOnDidFailLoadingMapListener { _ -> m.setStyle(Style.Builder().fromUri(STYLE_FALLBACK)) { st -> styleLoaded = st } }
+                mapView.addOnDidFailLoadingMapListener { message ->
+                    Log.w("FuelMap", "Map style failed: $message")
+                    if (!fallbackRequested) {
+                        fallbackRequested = true
+                        m.setStyle(Style.Builder().fromUri(STYLE_FALLBACK)) { st -> styleLoaded = st }
+                    }
+                }
                 val center = ui.myLat?.let { LatLng(it, ui.myLon ?: 0.0) } ?: ui.status?.lat?.let { LatLng(it, ui.status?.lon ?: 0.0) } ?: LatLng(59.91, 10.75)
                 m.cameraPosition = CameraPosition.Builder().target(center).zoom(13.0).build()
             }
@@ -238,12 +253,28 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     }
     LaunchedEffect(styleLoaded, fuelMap, fuelVisible) {
         val st = styleLoaded ?: return@LaunchedEffect
-        if (fuelVisible || st.getSource("lf-fuel-stations") != null) updateFuelCatalogLayer(st, fuelMap.takeIf { fuelVisible })
+        if (fuelVisible || st.getSource(STATIONS) != null) {
+            runCatching { updateFuelCatalogLayer(st, fuelMap.takeIf { fuelVisible }) }
+                .onFailure { Log.e("FuelMap", "Cannot populate station source", it) }
+        }
     }
     LaunchedEffect(styleLoaded, activeFuelResult) {
         val st = styleLoaded ?: return@LaunchedEffect
-        addSymbols(ctx, st, c.accent.toArgb())
-        updateFuelPlanLayers(st, activeFuelResult)
+        runCatching { updateFuelPlanLayers(st, activeFuelResult) }
+            .onFailure { Log.e("FuelMap", "Cannot populate plan layers", it) }
+    }
+    // The map may be ready before location arrives. Move only from the untouched fallback camera.
+    LaunchedEffect(map, fuelVisible, ui.myLat, ui.myLon, ui.status?.lat, ui.status?.lon) {
+        val m = map ?: return@LaunchedEffect
+        if (!fuelVisible || activeFuelResult != null) return@LaunchedEffect
+        val target = m.cameraPosition.target ?: return@LaunchedEffect
+        val fallback = kotlin.math.abs(target.latitude - 59.91) < 0.0001 && kotlin.math.abs(target.longitude - 10.75) < 0.0001
+        val italyOverview = kotlin.math.abs(target.latitude - 42.5) < 0.0001 && kotlin.math.abs(target.longitude - 12.5) < 0.0001
+        if (!fallback && !italyOverview) return@LaunchedEffect
+        val location = ui.myLat?.let { lat -> ui.myLon?.let { LatLng(lat, it) } }
+            ?: ui.status?.lat?.let { lat -> ui.status?.lon?.let { LatLng(lat, it) } }
+        if (location != null) m.moveCamera(CameraUpdateFactory.newLatLngZoom(location, 13.0))
+        else if (fallback) m.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(42.5, 12.5), 5.5))
     }
     LaunchedEffect(is3d) {
         map?.let { m ->
@@ -487,7 +518,13 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (fp.editing) FuelTripForm(fp, p, fuelForm, ui)
-                    if (!fp.editing) FuelTripResultPanel(fp, s) { station -> selectedFuel = station; showOnMap(station.lat, station.lon) }
+                    else if (activeFuelResult != null) FuelTripResultPanel(fp, s) { station ->
+                        selectedFuel = station
+                        showOnMap(station.lat, station.lon)
+                    } else {
+                        FuelProgress(fp)
+                        SecondaryButton("Edit trip") { fp.editing = true }
+                    }
                     FuelSyncStatus(catalog) { fp.refresh(force = true) }
                     FuelAttribution()
                 }
