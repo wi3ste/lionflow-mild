@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo chgrp "$(id -gn)" /dev/kvm
           sudo chmod g+rw /dev/kvm
-      - name: Verify fuel markers and clusters on Android
+      - name: Run Android instrumentation tests
         if: github.event_name == 'workflow_dispatch' && github.ref_name == 'feature/fuel-trip-planner'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -40,4 +40,4 @@ jobs:
           target: google_apis
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=no.lionflow.app.ui.screens.FuelMapRenderingTest --no-daemon || { adb logcat -d -s FuelMap FuelMapTest Mbgl MapLibre AndroidRuntime; cat app/build/outputs/androidTest-results/connected/debug/*/*.xml; exit 1; }
+          script: gradle :app:connectedDebugAndroidTest --no-daemon || { adb logcat -d -s FuelMap FuelMapTest Mbgl MapLibre AndroidRuntime; find app/build/outputs/androidTest-results/connected/debug -name "TEST-*.xml" -exec cat {} +; exit 1; }
