@@ -111,13 +111,13 @@ private fun clockAt(p: Planner, minutes: Double): String {
 
 /** "1 h 5 min · arrive 12:05" for a stop on the way. */
 private fun arriveLine(p: Planner, minutes: Double?): String? = minutes?.let {
-    dur(it) + " · " + L10n.tr("arrive {0}").replace("{0}", clockAt(p, it))
+    planDuration(it) + " · " + L10n.tr("arrive {0}").replace("{0}", clockAt(p, it))
 }
 
 private fun viaTag(stay: Int, dest: Boolean = false, pct: Double? = null): String =
     L10n.tr(if (dest) "Destination" else "Via") + (if (stay > 0) " · $stay min" else "") + (pct?.let { " · ${it.roundToInt()} %" } ?: "")
 
-private fun dur(minutes: Double): String {
+internal fun planDuration(minutes: Double): String {
     val m = minutes.roundToInt().coerceAtLeast(0)
     return if (m >= 60) "${m / 60} h ${m % 60} min" else "$m min"
 }
@@ -283,7 +283,7 @@ private fun SavedTrips(p: Planner, s: AppSettings) {
 }
 
 @Composable
-private fun AddressRow(
+internal fun AddressRow(
     icon: ImageVector, tint: Color, hint: String, value: String?, active: Boolean, query: String, requester: FocusRequester,
     onQuery: (String) -> Unit, onOpen: () -> Unit, onClose: () -> Unit, onRemove: (() -> Unit)? = null,
 ) {
@@ -311,7 +311,7 @@ private fun AddressRow(
 }
 
 @Composable
-private fun SuggestRow(icon: ImageVector, tint: Color, name: String, detail: String, saved: Boolean?, onStar: () -> Unit, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
+internal fun SuggestRow(icon: ImageVector, tint: Color, name: String, detail: String, saved: Boolean?, onStar: () -> Unit, onRemove: (() -> Unit)? = null, onClick: () -> Unit) {
     val c = LocalLf.current
     Row(
         Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(role = Role.Button, onClick = onClick).padding(start = 14.dp, end = 6.dp),
@@ -468,7 +468,7 @@ fun PlanResult(p: Planner, s: AppSettings, options: Boolean, onShow: (Double, Do
         // Summary
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(dur(plan.totalMin), style = Type.stat.copy(fontSize = 26.sp), color = c.text, modifier = Modifier.weight(1f))
+                Text(planDuration(plan.totalMin), style = Type.stat.copy(fontSize = 26.sp), color = c.text, modifier = Modifier.weight(1f))
                 if (plan.ok) {
                     val cal = java.util.Calendar.getInstance().apply { timeInMillis = p.departMillis(); add(java.util.Calendar.MINUTE, (plan.totalMin + p.farStay).roundToInt()) }
                     Text("Arrive " + TimeFmt.hm(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)), style = Type.label, color = c.text2)
@@ -479,7 +479,7 @@ fun PlanResult(p: Planner, s: AppSettings, options: Boolean, onShow: (Double, Do
                 listOfNotNull(
                     fmtDistance(plan.totalKm, s),
                     when (charging) { 0 -> "No charging needed"; 1 -> "1 stop"; else -> "$charging stops" },
-                    if (plan.chargeMin > 0) "${dur(plan.chargeMin.toDouble())} charging" else null,
+                    if (plan.chargeMin > 0) "${planDuration(plan.chargeMin.toDouble())} charging" else null,
                 ).joinToString(" · "), style = Type.small, color = c.muted,
             )
             if (plan.ok) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -515,7 +515,7 @@ fun PlanResult(p: Planner, s: AppSettings, options: Boolean, onShow: (Double, Do
             // On a round trip: how long the drive back takes (from leaving the destination).
             val back = if (p.planRound) p.planVias.lastOrNull()?.let { d -> p.minutesTo(d.lat, d.lon)?.let { plan.totalMin - it } } else null
             EndRow(c.accentInk, placeName(to), to.detail, if (plan.ok) "${plan.arrivePct.roundToInt()} %" else "—",
-                back?.let { L10n.tr("Back: {0}").replace("{0}", dur(it)) + " · " + L10n.tr("arrive {0}").replace("{0}", clockAt(p, plan.totalMin + p.farStay)) }) { onShow(to.lat, to.lon) }
+                back?.let { L10n.tr("Back: {0}").replace("{0}", planDuration(it)) + " · " + L10n.tr("arrive {0}").replace("{0}", clockAt(p, plan.totalMin + p.farStay)) }) { onShow(to.lat, to.lon) }
         }
 
         if (options) { ViaStays(p); BatteryOptions(p) }
@@ -694,7 +694,7 @@ private fun AltChooser(p: Planner, s: AppSettings) {
                 if (a === cheapest && done.size > 1) L10n.tr("Cheapest") else null,
             ).joinToString(" · ")
             val info = if (pl == null) L10n.tr("Working it out…")
-                else listOfNotNull(dur(pl.totalMin), pl.stops.count { it.kwh > 0.01 }.let { n -> if (n == 1) L10n.tr("1 stop") else L10n.tr("$n stops") }, fmtDistance(a.route.totalKm, s), if (pl.ok) L10n.tr("arrive ${pl.arrivePct.roundToInt()} %") else null, pl.cost?.let { "≈ " + money(it, pl.currency) }).joinToString(" · ")
+                else listOfNotNull(planDuration(pl.totalMin), pl.stops.count { it.kwh > 0.01 }.let { n -> if (n == 1) L10n.tr("1 stop") else L10n.tr("$n stops") }, fmtDistance(a.route.totalKm, s), if (pl.ok) L10n.tr("arrive ${pl.arrivePct.roundToInt()} %") else null, pl.cost?.let { "≈ " + money(it, pl.currency) }).joinToString(" · ")
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                     .border(1.dp, if (sel) c.accentInk else c.line2, RoundedCornerShape(14.dp))
@@ -717,7 +717,7 @@ private fun FerryRows(p: Planner) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         p.ferryInfo.forEach { f ->
             val at = f.departMs?.let { ms -> java.util.Calendar.getInstance().apply { timeInMillis = ms }.let { " · " + L10n.tr("leaves") + " " + TimeFmt.hm(it.get(java.util.Calendar.HOUR_OF_DAY), it.get(java.util.Calendar.MINUTE)) } } ?: ""
-            Plain("⛴ ${f.ferry.name} · ${dur(f.ferry.minutes)} · ${L10n.tr("wait")} ${f.waitMin} min$at", Type.small, c.text2, maxLines = 2)
+            Plain("⛴ ${f.ferry.name} · ${planDuration(f.ferry.minutes)} · ${L10n.tr("wait")} ${f.waitMin} min$at", Type.small, c.text2, maxLines = 2)
         }
         val platform = LocalPlatform.current
         Text("Ferry times: Entur and Transitous where the operator publishes them, otherwise a typical wait is assumed.", style = Type.tiny, color = c.muted,
@@ -728,7 +728,7 @@ private fun FerryRows(p: Planner) {
 /** Pick the day (today and the next six) and the time to leave, or "Now". */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun DepartPicker(current: Long?, onSet: (Long?) -> Unit, onClose: () -> Unit) {
+internal fun DepartPicker(current: Long?, onSet: (Long?) -> Unit, onClose: () -> Unit) {
     val c = LocalLf.current
     val start = java.util.Calendar.getInstance().apply { timeInMillis = current ?: (System.currentTimeMillis() + 15 * 60_000L) }
     val today = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }

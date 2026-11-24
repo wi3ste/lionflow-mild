@@ -59,6 +59,15 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import no.lionflow.app.fuel.FuelGrade
+import no.lionflow.app.fuel.FuelProfile
+import no.lionflow.app.fuel.FuelServiceFilter
+import no.lionflow.app.fuel.FuelStation
+import no.lionflow.app.ui.l10n.L10n
+import java.time.Instant
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -107,8 +116,43 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val density = LocalDensity.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val p = vm.planner
-    /** The trip planner is for fully electric cars. */
-    val electric = ui.status?.energyType == "Electric"
+    val powertrain = ui.vehicle?.kind(null)
+    val knownFuel = powertrain in setOf("Petrol / diesel", "Plug-in hybrid", "48 V mild hybrid", "Hybrid (type unknown)") ||
+        ui.vehicle?.motorization?.let(FuelGrade::from) != null
+    val hasElectricReadings = ui.status?.let { it.batteryPct != null || it.rangeKm != null || it.chargingStatus != null } == true
+    val electric = ui.status?.energyType == "Electric" && (hasElectricReadings || !knownFuel)
+    val supportsFuel = !electric && (ui.status != null || (ui.vehicle != null && powertrain != "Electric"))
+    val fp = vm.fuelPlanner
+    val vin = ui.vehicle?.vin.orEmpty()
+    val fuelForm = remember(vin, powertrain, ui.status?.isMildHybrid, ui.status?.energyType) {
+        val profile = when {
+            ui.status?.isMildHybrid == true || powertrain == "48 V mild hybrid" -> FuelProfile.MILD
+            ui.status?.energyType == "Hybrid" || powertrain == "Plug-in hybrid" -> FuelProfile.PLUG_IN
+            powertrain == "Hybrid (type unknown)" -> FuelProfile.FULL
+            else -> FuelProfile.COMBUSTION
+        }
+        FuelFormState(fp, vin, profile)
+    }
+    LaunchedEffect(fuelForm) {
+        fp.selectVehicle(vin, ui.vehicle?.motorization.orEmpty())
+        fuelForm.loadTank()
+    }
+    var fuelLayer by remember(vin, supportsFuel) { mutableStateOf(supportsFuel) }
+    var selectedFuel by remember(vin) { mutableStateOf<FuelStation?>(null) }
+    var fuelMap by remember { mutableStateOf<FuelMapData?>(null) }
+    val catalog by fp.catalog.state.collectAsStateWithLifecycle()
+    val fuelVisible = supportsFuel && (fuelLayer || fp.open)
+    val activeFuelResult = fp.result?.takeIf { supportsFuel && fp.open && it.plan != null }
+    val priceClock = remember(ui.now / 3_600_000) { Instant.now() }
+    LaunchedEffect(fuelVisible) { if (fuelVisible) fp.refresh() }
+    LaunchedEffect(fuelVisible, catalog.snapshot, fp.grade, fp.service, L10n.lang, priceClock) {
+        if (fuelVisible) {
+            val grade = fp.grade
+            val service = fp.service
+            val snapshot = catalog.snapshot
+            fuelMap = withContext(Dispatchers.Default) { fuelMapData(snapshot, grade, service, priceClock) }
+        } else fuelMap = null
+    }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var styleLoaded by remember { mutableStateOf<Style?>(null) }
     var is3d by remember { mutableStateOf(false) }
@@ -152,6 +196,14 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                 m.addOnCameraMoveListener { bearing = m.cameraPosition.bearing.toFloat() }
                 m.addOnMapClickListener { pt ->
                     val at: PointF = m.projection.toScreenLocation(pt)
+                    val fuelHit = runCatching {
+                        fuelAt(m, at, { id ->
+                            fp.result?.takeIf { fp.open }?.plan?.stops?.firstOrNull { it.candidate.station.id == id }?.candidate?.station
+                                ?: fuelMap?.stations?.get(id)
+                        }) { selectedFuel = it; selected = null; selPlan = null }
+                    }.getOrDefault(false)
+                    if (fuelHit) return@addOnMapClickListener true
+                    selectedFuel = null
                     val planHit = try { m.queryRenderedFeatures(at, "lf-plan-stops", "lf-plan-chargers").firstOrNull()?.getStringProperty("id") } catch (_: Exception) { null }
                     if (planHit != null) { selPlan = planHit; selected = null; true }
                     else {
@@ -170,16 +222,28 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     }
     LaunchedEffect(Unit) {
         if (ui.myLat == null) platform.requestLocation()
-        if (ui.chargers.isEmpty()) vm.loadChargers()
+    }
+    LaunchedEffect(fuelVisible) {
+        if (!fuelVisible && ui.chargers.isEmpty()) vm.loadChargers()
     }
 
     // Keep data layers in sync
     val planning = p.open && p.route != null
-    val routeJson = remember(p.route) { p.route?.let { lineJson(it) } }
-    val visible = if (planning) emptyList() else ui.chargers.filter { filter == "all" || it.maxKw >= 50 }
+    val road = activeFuelResult?.road ?: p.route?.takeIf { planning }
+    val routeJson = remember(road) { road?.let { lineJson(it) } }
+    val visible = if (planning || fuelVisible) emptyList() else ui.chargers.filter { filter == "all" || it.maxKw >= 50 }
     LaunchedEffect(styleLoaded, visible, ui.myLat, ui.status?.lat, is3d, c.isDark, routeJson, p.plan, p.chargers, planning) {
         val st = styleLoaded ?: return@LaunchedEffect
-        try { updateLayers(ctx, st, visible, ui, c.accent, c.isDark, is3d, if (planning) routeJson else null, if (planning) p else null) } catch (_: Exception) { }
+        try { updateLayers(ctx, st, visible, ui, c.accent, c.isDark, is3d, routeJson, if (planning) p else null) } catch (_: Exception) { }
+    }
+    LaunchedEffect(styleLoaded, fuelMap, fuelVisible) {
+        val st = styleLoaded ?: return@LaunchedEffect
+        if (fuelVisible || st.getSource("lf-fuel-stations") != null) updateFuelCatalogLayer(st, fuelMap.takeIf { fuelVisible })
+    }
+    LaunchedEffect(styleLoaded, activeFuelResult) {
+        val st = styleLoaded ?: return@LaunchedEffect
+        addSymbols(ctx, st, c.accent.toArgb())
+        updateFuelPlanLayers(st, activeFuelResult)
     }
     LaunchedEffect(is3d) {
         map?.let { m ->
@@ -196,13 +260,20 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         val fullH = maxHeight
         val showForm = p.open && !wide && (p.editing || p.plan == null)
         val showSheet = p.open && !wide && !showForm
+        val fuelOpen = supportsFuel && fp.open
+        val fuelFormFull = fuelOpen && !wide && fp.editing
+        val fuelSheet = fuelOpen && !wide && !fp.editing
         fun showOnMap(la: Double, lo: Double) { map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(la, lo), 13.5), 700) }
 
         BackHandler(enabled = p.open) { if (!wide && p.editing && p.plan != null) p.editing = false else p.close() }
 
+        BackHandler(enabled = fuelOpen) {
+            if (!wide && fp.editing && activeFuelResult != null) fp.editing = false else fp.close()
+        }
+
         // Show the whole route when a new one arrives.
-        LaunchedEffect(p.route, map, wide) {
-            val r = p.route ?: return@LaunchedEffect
+        LaunchedEffect(road, map, wide) {
+            val r = road ?: return@LaunchedEffect
             val m = map ?: return@LaunchedEffect
             if (r.size < 2) return@LaunchedEffect
             val b = LatLngBounds.Builder()
@@ -221,7 +292,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         AndroidView({ mapView }, Modifier.fillMaxSize())
 
         // Top: trip search and filters, or the trip being planned
-        if (!p.open) {
+        if (!p.open && !fuelOpen) {
             Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (electric) Row(
                     Modifier.widthIn(max = 420.dp).fillMaxWidth().heightIn(min = 48.dp).shadow(6.dp, CircleShape).clip(CircleShape).background(c.card).border(1.dp, c.line, CircleShape)
@@ -235,11 +306,29 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     Text("Plan a trip: where to?", style = Type.body, color = c.muted, modifier = Modifier.weight(1f), maxLines = 1)
                     LfIcon(LfIcons.Route, c.accentInk, 18.dp)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (supportsFuel) {
+                    PrimaryButton("Plan a fuel trip", icon = LfIcons.Route) {
+                        fp.open = true
+                        fp.editing = fp.result?.plan == null
+                        fuelLayer = true
+                        selectedFuel = null
+                        if (ui.trips.isEmpty() && !ui.tripsLoading) vm.loadTrips()
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip("Fuel stations", fuelLayer) { fuelLayer = true; selected = null }
+                        FilterChip("Charging stations", !fuelLayer) { fuelLayer = false; selectedFuel = null }
+                    }
+                }
+                if (fuelVisible) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FuelChoice(FuelGrade.entries, fp.grade, FuelGrade::label) { fuelForm.useGrade(it); selectedFuel = null }
+                        FuelChoice(FuelServiceFilter.entries, fp.service, FuelServiceFilter::label) { fp.service = it; selectedFuel = null }
+                    }
+                } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip("All", filter == "all") { filter = "all" }
                     FilterChip("Fast 50 kW+", filter == "fast") { filter = "fast" }
                 }
-                ui.chargerError?.let {
+                ui.chargerError?.takeIf { !fuelVisible }?.let {
                     Text(it, style = Type.small, color = c.text, maxLines = 2, modifier = Modifier.padding(end = 64.dp).clip(RoundedCornerShape(12.dp)).background(c.card).padding(horizontal = 12.dp, vertical = 8.dp)
                         .clickable { vm.loadChargers() })
                 }
@@ -261,7 +350,7 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         }
 
         // Right: controls
-        if (!showForm) Column(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.statusBars).padding(top = 64.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (!showForm && !fuelFormFull) Column(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.statusBars).padding(top = if (supportsFuel && !fuelOpen) 168.dp else 64.dp, end = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.shadow(6.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(c.card).border(1.dp, c.line, RoundedCornerShape(16.dp))) {
                 MapButton("2D", !is3d) { is3d = false }
                 Box(Modifier.width(48.dp).height(1.dp).background(c.line))
@@ -291,14 +380,17 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
         }
 
         // Bottom card (not planning): the tapped charger, or the car
-        if (!p.open) Column(
+        if (!p.open && !fuelOpen) Column(
             Modifier.align(Alignment.BottomCenter).widthIn(max = 520.dp).fillMaxWidth().padding(12.dp)
                 .shadow(10.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp)).background(c.card).border(1.dp, c.line, RoundedCornerShape(24.dp))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val sel = selected
-            if (sel != null) {
+            val station = selectedFuel?.takeIf { fuelVisible }
+            if (station != null) {
+                FuelStationDetails(station, station.offer(fp.grade, fp.service, priceClock), priceClock) { selectedFuel = null }
+            } else if (sel != null) {
                 Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(sel.name, style = Type.label.copy(fontSize = 17.sp), color = c.text)
@@ -321,14 +413,19 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
                     Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(c.raised), contentAlignment = Alignment.Center) { LfIcon(LfIcons.Car, c.accentInk, 20.dp) }
                     Column(Modifier.weight(1f)) {
                         Text("Your car", style = Type.label, color = c.text)
-                        Text(if (carLat != null) (if (moving) "Driving" else "Parked") + " · tap a charger for details" else "Position not available yet", style = Type.small, color = c.muted)
+                        Text(if (fuelVisible) "Tap a fuel station for details" else if (carLat != null) (if (moving) "Driving" else "Parked") + " · tap a charger for details" else "Position not available yet", style = Type.small, color = c.muted)
                     }
                     if (carLat != null && carLon != null) Text("Go", style = Type.label, color = c.accentInk, modifier = Modifier.clickable {
                         map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(carLat, carLon), 15.0))
                     }.padding(8.dp))
                 }
             }
-            Text("Map © OpenStreetMap contributors · OpenFreeMap" + if (ui.chargers.isNotEmpty()) (if (s.chargerSource == "nobil") " · Chargers: NOBIL" else " · Chargers: OpenStreetMap") else "", style = Type.tiny.copy(fontSize = 10.sp), color = c.muted,
+            if (fuelVisible) {
+                FuelSyncStatus(catalog) { fp.refresh(force = true) }
+                if (!catalog.refreshing) SecondaryButton("Refresh fuel stations") { fp.refresh(force = true) }
+                FuelAttribution()
+            }
+            Text("Map © OpenStreetMap contributors · OpenFreeMap" + if (!fuelVisible && ui.chargers.isNotEmpty()) (if (s.chargerSource == "nobil") " · Chargers: NOBIL" else " · Chargers: OpenStreetMap") else "", style = Type.tiny.copy(fontSize = 10.sp), color = c.muted,
                 modifier = Modifier.clickable { platform.openUrl("https://www.openstreetmap.org/copyright") })
         }
 
@@ -374,6 +471,39 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
             }
         }
 
+        if (fuelOpen) {
+            val panel = when {
+                wide -> Modifier.align(Alignment.TopStart).width(392.dp).fillMaxHeight()
+                    .windowInsetsPadding(WindowInsets.systemBars).padding(12.dp)
+                fuelFormFull -> Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).imePadding()
+                else -> Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth()
+                    .height(fullH * 0.56f)
+            }
+            val shape = RoundedCornerShape(if (fuelFormFull) 0.dp else 24.dp)
+            Column(panel.shadow(if (fuelFormFull) 0.dp else 12.dp, shape).clip(shape).background(c.card).blockTouches()) {
+                PlanHeader(back = fuelFormFull, title = "Fuel trip planner") {
+                    if (fuelFormFull && activeFuelResult != null) fp.editing = false else fp.close()
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (fp.editing) FuelTripForm(fp, p, fuelForm, ui)
+                    if (!fp.editing) FuelTripResultPanel(fp, s) { station -> selectedFuel = station; showOnMap(station.lat, station.lon) }
+                    FuelSyncStatus(catalog) { fp.refresh(force = true) }
+                    FuelAttribution()
+                }
+            }
+            if ((fuelSheet || (wide && !fp.editing)) && selectedFuel != null) {
+                val station = selectedFuel!!
+                val offer = activeFuelResult?.plan?.stops?.firstOrNull { it.candidate.station.id == station.id }?.candidate?.offer
+                    ?: station.offer(fp.grade, fp.service, priceClock)
+                Column(Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(start = if (wide) 404.dp else 12.dp, end = 64.dp, top = 12.dp)
+                    .widthIn(max = 420.dp).fillMaxWidth().shadow(8.dp, shape).clip(shape).background(c.card).padding(12.dp)) {
+                    FuelStationDetails(station, offer, priceClock) { selectedFuel = null }
+                }
+            }
+        }
+
         // A charger along the route that was tapped on the map
         val sel = selPlan?.let { id -> p.chargers.firstOrNull { it.id == id } }
         if (p.open && sel != null && !showForm) {
@@ -389,11 +519,11 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
 }
 
 @Composable
-private fun PlanHeader(back: Boolean, onClose: () -> Unit) {
+private fun PlanHeader(back: Boolean, title: String = "Plan a trip", onClose: () -> Unit) {
     val c = LocalLf.current
     Row(Modifier.fillMaxWidth().padding(start = if (back) 6.dp else 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (back) LfIcon(LfIcons.Back, c.text, 22.dp, "Back", Modifier.clip(CircleShape).clickable(onClick = onClose).padding(10.dp))
-        Text("Plan a trip", style = Type.stat, color = c.text, modifier = Modifier.weight(1f))
+        Text(title, style = Type.stat, color = c.text, modifier = Modifier.weight(1f))
         if (!back) LfIcon(LfIcons.Close, c.muted, 22.dp, "Close", Modifier.clip(CircleShape).clickable(onClick = onClose).padding(10.dp))
     }
 }
@@ -500,7 +630,7 @@ private fun updateLayers(ctx: Context, style: Style, chargers: List<Charger>, ui
 
     // The planned trip: the road, the chargers along it, the stops, and both ends
     val route = planner?.route
-    style.getSourceAs<GeoJsonSource>("lf-route-src")?.setGeoJson(if (route != null && routeJson != null) routeJson else EMPTY)
+    style.getSourceAs<GeoJsonSource>("lf-route-src")?.setGeoJson(routeJson ?: EMPTY)
     val stops = planner?.plan?.stops.orEmpty()
     val stopIds = stops.map { it.charger.id }.toSet()
     style.getSourceAs<GeoJsonSource>("lf-plan-ch-src")?.setGeoJson(FeatureCollection.fromFeatures(
@@ -552,7 +682,7 @@ private fun updateLayers(ctx: Context, style: Style, chargers: List<Charger>, ui
 }
 
 @Composable
-private fun FilterChip(text: String, active: Boolean, onClick: () -> Unit) {
+internal fun FilterChip(text: String, active: Boolean, onClick: () -> Unit) {
     val c = LocalLf.current
     Box(
         Modifier.heightIn(min = 38.dp).shadow(4.dp, CircleShape).clip(CircleShape).background(if (active) c.text else c.card)

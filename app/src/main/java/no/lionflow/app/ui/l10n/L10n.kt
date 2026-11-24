@@ -20,9 +20,10 @@ object L10n {
         "fr" to "Français",
         "de" to "Deutsch",
         "es" to "Español",
+        "it" to "Italiano",
         "nb" to "Norsk (bokmål)",
     )
-    private val COLUMNS = listOf("fr", "de", "es", "nb")
+    private val COLUMNS = listOf("fr", "de", "es", "nb", "it")
 
     /** The language in use right now (never "system"). Compose re-draws when it changes. */
     var lang by mutableStateOf("en")
@@ -61,7 +62,7 @@ object L10n {
                 val cols = line.split('\t').map { unesc(it) }
                 if (cols.size < 5) continue
                 val en = cols[0]
-                val tr = cols.subList(1, 5).toTypedArray()
+                val tr = Array(COLUMNS.size) { index -> cols.getOrElse(index + 1) { "" } }
                 ex[en] = tr
                 // Fragments that are glued to other text: "Ready at " + time, base + " · auto when open".
                 var t = en; var trs = tr

@@ -1,4 +1,4 @@
-en	fr	de	es	nb
+en	fr	de	es	nb	it
 No commands sent since the app was opened.	Aucune commande envoyée depuis l'ouverture de l'app.	Seit dem Öffnen der App wurden keine Befehle gesendet.	No se han enviado comandos desde que se abrió la app.	Ingen kommandoer sendt siden appen ble åpnet.
 My Peugeot	Ma Peugeot	Mein Peugeot	Mi Peugeot	Min Peugeot
 Electric	Électrique	Elektrisch	Eléctrico	Elektrisk
@@ -21,7 +21,7 @@ Sending…	Envoi…	Wird gesendet…	Enviando…	Sender…
 {0} — the car got it	{0} — la voiture l'a reçu	{0} — das Auto hat es erhalten	{0} — el coche lo ha recibido	{0} — bilen har mottatt det
 {0} — done	{0} — terminé	{0} — erledigt	{0} — hecho	{0} — ferdig
 Lock	Verrouiller	Verriegeln	Bloquear	Lås
-Unlock	Déverrouiller	Entriegeln	Desbloquear	Lås opp
+Unlock	Déverrouiller	Entriegeln	Desbloquear	Lås opp	Sblocca
 Horn	Klaxon	Hupe	Claxon	Horn
 Flash lights	Faire clignoter les feux	Lichthupe	Encender las luces	Blink med lysene
 Pre-heating	Préchauffage	Vorklimatisierung	Preacondicionamiento	Forvarming
@@ -65,7 +65,7 @@ Home	Accueil	Start	Inicio	Hjem
 Charging	Charge	Laden	Carga	Lading
 Map	Carte	Karte	Mapa	Kart
 Climate	Climat	Klima	Clima	Klima
-Service	Entretien	Service	Mantenimiento	Service
+Service	Entretien	Service	Mantenimiento	Service	Modalità di servizio
 Trips	Trajets	Fahrten	Viajes	Turer
 not updated yet	pas encore mis à jour	noch nicht aktualisiert	aún no actualizado	ikke oppdatert ennå
 just now	à l'instant	gerade eben	ahora mismo	akkurat nå
@@ -103,7 +103,7 @@ Use fingerprint	Utiliser l'empreinte	Fingerabdruck verwenden	Usar huella	Bruk fi
 Delete	Supprimer	Löschen	Eliminar	Slett
 Wrong code — try again	Code incorrect — réessayez	Falscher Code — erneut versuchen	Código incorrecto — inténtalo de nuevo	Feil kode — prøv igjen
 Enter your 4-digit security code	Saisissez votre code de sécurité à 4 chiffres	Geben Sie Ihren 4-stelligen Sicherheitscode ein	Introduce tu código de seguridad de 4 cifras	Skriv inn den 4-sifrede sikkerhetskoden
-Cancel	Annuler	Abbrechen	Cancelar	Avbryt
+Cancel	Annuler	Abbrechen	Cancelar	Avbryt	Annulla
 Charge limit	Limite de charge	Ladelimit	Límite de carga	Ladegrense
 Car's limit	Limite de la voiture	Limit des Autos	Límite del coche	Bilens grense
 Daily limit	Limite quotidienne	Tageslimit	Límite diario	Daglig grense
@@ -157,7 +157,7 @@ Cost	Coût	Kosten	Coste	Kostnad
 No price set	Aucun prix défini	Kein Preis festgelegt	Sin precio definido	Ingen pris satt
 Free	Gratuit	Kostenlos	Gratis	Gratis
 ≈ {0} ({1} {2}/kWh)	≈ {0} ({1} {2}/kWh)	≈ {0} ({1} {2}/kWh)	≈ {0} ({1} {2}/kWh)	≈ {0} ({1} {2}/kWh)
-Close	Fermer	Schließen	Cerrar	Lukk
+Close	Fermer	Schließen	Cerrar	Lukk	Chiudi
 Tap again to delete	Touchez à nouveau pour supprimer	Zum Löschen erneut tippen	Toca de nuevo para eliminar	Trykk igjen for å slette
 Known chargers (up to 5)	Bornes connues (jusqu'à 5)	Bekannte Ladestationen (bis zu 5)	Cargadores conocidos (hasta 5)	Kjente ladere (opptil 5)
 + Add a charger	+ Ajouter une borne	+ Ladestation hinzufügen	+ Añadir un cargador	+ Legg til en lader
@@ -180,7 +180,7 @@ Enter an address or use the car's location	Saisissez une adresse ou utilisez la 
 Finding the address…	Recherche de l'adresse…	Adresse wird gesucht…	Buscando la dirección…	Finner adressen…
 Couldn't find that address. Try adding the town, or use the car's location.	Adresse introuvable. Ajoutez la ville, ou utilisez la position de la voiture.	Adresse nicht gefunden. Fügen Sie den Ort hinzu oder verwenden Sie die Position des Autos.	No se encontró la dirección. Añade la ciudad o usa la ubicación del coche.	Fant ikke adressen. Prøv å legge til stedsnavn, eller bruk bilens posisjon.
 Saving…	Enregistrement…	Wird gespeichert…	Guardando…	Lagrer…
-Remove	Retirer	Entfernen	Quitar	Fjern
+Remove	Retirer	Entfernen	Quitar	Fjern	Rimuovi
 Fuel	Carburant	Kraftstoff	Combustible	Drivstoff
 Petrol / diesel car	Voiture essence / diesel	Benzin- / Dieselauto	Coche de gasolina / diésel	Bensin- / dieselbil
 This car has no battery to charge. Fuel level and range are on the Home screen.	Cette voiture n'a pas de batterie à charger. Le niveau de carburant et l'autonomie sont sur l'écran d'accueil.	Dieses Auto hat keine Batterie zum Laden. Tankfüllung und Reichweite finden Sie auf dem Startbildschirm.	Este coche no tiene batería que cargar. El nivel de combustible y la autonomía están en la pantalla de inicio.	Denne bilen har ikke noe batteri å lade. Drivstoffnivå og rekkevidde finner du på Hjem-skjermen.
@@ -238,7 +238,7 @@ Update {0} is ready	La mise à jour {0} est prête	Update {0} ist bereit	La actu
 Signed with LionFlow's key · installs in a few seconds	Signée avec la clé de LionFlow · s'installe en quelques secondes	Mit dem LionFlow-Schlüssel signiert · installiert in wenigen Sekunden	Firmada con la clave de LionFlow · se instala en unos segundos	Signert med LionFlows nøkkel · installeres på noen sekunder
 Install	Installer	Installieren	Instalar	Installer
 Locked · doors closed	Verrouillée · portes fermées	Verriegelt · Türen zu	Bloqueado · puertas cerradas	Låst · dører lukket
-Locked	Verrouillée	Verriegelt	Bloqueado	Låst
+Locked	Verrouillée	Verriegelt	Bloqueado	Låst	Bloccata
 Unlocked	Déverrouillée	Entriegelt	Desbloqueado	Ulåst
 Doors —	Portes —	Türen —	Puertas —	Dører —
 Driving	En route	Fährt	Conduciendo	Kjører
@@ -278,8 +278,8 @@ Zoom in	Zoom avant	Vergrößern	Acercar	Zoom inn
 Zoom out	Zoom arrière	Verkleinern	Alejar	Zoom ut
 Reset rotation to north	Réorienter vers le nord	Nach Norden ausrichten	Orientar al norte	Nordover
 Show my location	Afficher ma position	Meinen Standort zeigen	Mostrar mi ubicación	Vis posisjonen min
-Navigate	Itinéraire	Navigieren	Navegar	Naviger
-Open in Maps	Ouvrir dans Maps	In Maps öffnen	Abrir en Maps	Åpne i Kart
+Navigate	Itinéraire	Navigieren	Navegar	Naviger	Avvia navigazione
+Open in Maps	Ouvrir dans Maps	In Maps öffnen	Abrir en Maps	Åpne i Kart	Apri in Mappe
 Your car	Votre voiture	Ihr Auto	Tu coche	Bilen din
  · tap a charger for details	 · touchez une borne pour les détails	 · Ladestation antippen für Details	 · toca un cargador para ver detalles	 · trykk på en lader for detaljer
 Position not available yet	Position pas encore disponible	Position noch nicht verfügbar	Posición aún no disponible	Posisjon ikke tilgjengelig ennå
@@ -429,7 +429,7 @@ Outside temperature unknown	Température extérieure inconnue	Außentemperatur u
 Doors: {0}	Portes : {0}	Türen: {0}	Puertas: {0}	Dører: {0}
 Odometer {0}	Kilométrage {0}	Kilometerstand {0}	Kilometraje {0}	Kilometerstand {0}
 Odometer unknown	Kilométrage inconnu	Kilometerstand unbekannt	Kilometraje desconocido	Kilometerstand ukjent
-Driving history	Historique de conduite	Fahrtenverlauf	Historial de conducción	Kjørehistorikk
+Driving history	Historique de conduite	Fahrtenverlauf	Historial de conducción	Kjørehistorikk	Storico dei viaggi
 Last 7 days: {0} · {1} trips	7 derniers jours : {0} · {1} trajets	Letzte 7 Tage: {0} · {1} Fahrten	Últimos 7 días: {0} · {1} viajes	Siste 7 dager: {0} · {1} turer
 Loading…	Chargement…	Wird geladen…	Cargando…	Laster…
  average · tap for trips	 en moyenne · touchez pour les trajets	 im Schnitt · für Fahrten tippen	 de media · toca para ver los viajes	 i snitt · trykk for turer
@@ -450,7 +450,7 @@ Remote actions	Actions à distance	Fernaktionen	Acciones remotas	Fjernhandlinger
 Chargers near the car	Bornes près de la voiture	Ladestationen in der Nähe des Autos	Cargadores cerca del coche	Ladere nær bilen
 No trips in the last 30 days	Aucun trajet ces 30 derniers jours	Keine Fahrten in den letzten 30 Tagen	No hay viajes en los últimos 30 días	Ingen turer de siste 30 dagene
 Consumption not reported	Consommation non indiquée	Verbrauch nicht gemeldet	Consumo no indicado	Forbruk ikke rapportert
-Today	Aujourd'hui	Heute	Hoy	I dag
+Today	Aujourd'hui	Heute	Hoy	I dag	Oggi
 {0} mph avg	{0} mph de moyenne	Ø {0} mph	{0} mph de media	{0} mph i snitt
 No details	Pas de détails	Keine Details	Sin detalles	Ingen detaljer
 Sign in to LionFlow on your phone first	Connectez-vous d'abord à LionFlow sur votre téléphone	Melden Sie sich zuerst auf Ihrem Telefon bei LionFlow an	Inicia sesión primero en LionFlow en tu teléfono	Logg inn i LionFlow på telefonen først
@@ -465,12 +465,12 @@ Getting car status…	Récupération du statut de la voiture…	Fahrzeugstatus w
 Sign in on your phone	Connectez-vous sur votre téléphone	Auf dem Telefon anmelden	Inicia sesión en tu teléfono	Logg inn på telefonen
 Plugged in, not charging	Branchée, pas en charge	Angesteckt, lädt nicht	Enchufado, sin cargar	Tilkoblet, lader ikke
 Open: {0}	Ouvert : {0}	Offen: {0}	Abierto: {0}	Åpen: {0}
-Unknown	Inconnu	Unbekannt	Desconocido	Ukjent
+Unknown	Inconnu	Unbekannt	Desconocido	Ukjent	Non disponibile
 Not updated yet	Pas encore mis à jour	Noch nicht aktualisiert	Aún no actualizado	Ikke oppdatert ennå
 Car reported {0}	La voiture a signalé {0}	Auto meldete {0}	El coche informó {0}	Bilen rapporterte {0}
 Video stopped — the car is moving	Vidéo arrêtée — la voiture roule	Video gestoppt — das Auto fährt	Vídeo detenido — el coche se está moviendo	Video stoppet — bilen kjører
 Search	Rechercher	Suchen	Buscar	Søk
-Back	Retour	Zurück	Atrás	Tilbake
+Back	Retour	Zurück	Atrás	Tilbake	Indietro
 YouTube closed	YouTube fermé	YouTube geschlossen	YouTube cerrado	YouTube lukket
 Search YouTube	Rechercher sur YouTube	YouTube durchsuchen	Buscar en YouTube	Søk på YouTube
 Checking whether the car is parked…	Vérification que la voiture est à l'arrêt…	Prüfe, ob das Auto geparkt ist…	Comprobando si el coche está aparcado…	Sjekker om bilen står parkert…
@@ -752,13 +752,13 @@ Signed in, but {0} says no car is available on this account for the country you 
 Plan a trip: where to?	Planifier un trajet : où aller ?	Fahrt planen: Wohin?	Planificar un viaje: ¿adónde?	Planlegg en tur: hvor skal du?
 Plan a trip	Planifier un trajet	Fahrt planen	Planificar un viaje	Planlegg en tur
 Close the trip	Fermer le trajet	Fahrt schließen	Cerrar el viaje	Lukk turen
-Car's position	Position de la voiture	Standort des Autos	Posición del coche	Bilens posisjon
-My position	Ma position	Mein Standort	Mi posición	Min posisjon
-From	Départ	Start	Desde	Fra
-Where to?	Où aller ?	Wohin?	¿Adónde?	Hvor skal du?
+Car's position	Position de la voiture	Standort des Autos	Posición del coche	Bilens posisjon	Posizione dell’auto
+My position	Ma position	Mein Standort	Mi posición	Min posisjon	La mia posizione
+From	Départ	Start	Desde	Fra	Partenza
+Where to?	Où aller ?	Wohin?	¿Adónde?	Hvor skal du?	Destinazione
 Swap start and destination	Inverser départ et destination	Start und Ziel tauschen	Intercambiar origen y destino	Bytt start og mål
-Searching…	Recherche…	Suche…	Buscando…	Søker…
-No places found	Aucun lieu trouvé	Keine Orte gefunden	No se encontraron lugares	Fant ingen steder
+Searching…	Recherche…	Suche…	Buscando…	Søker…	Ricerca…
+No places found	Aucun lieu trouvé	Keine Orte gefunden	No se encontraron lugares	Fant ingen steder	Nessun luogo trovato
 Type an address or a place. Tap the star to save one.	Saisissez une adresse ou un lieu. Touchez l'étoile pour l'enregistrer.	Adresse oder Ort eingeben. Mit dem Stern speichern.	Escribe una dirección o un lugar. Toca la estrella para guardarlo.	Skriv en adresse eller et sted. Trykk på stjernen for å lagre.
 Plan again	Replanifier	Neu planen	Planificar de nuevo	Planlegg på nytt
 Plan trip	Planifier le trajet	Fahrt planen	Planificar viaje	Planlegg tur
@@ -799,9 +799,9 @@ Start with (car now)	Départ avec (voiture, maintenant)	Start mit (Auto jetzt)	S
 No internet connection, or all the free charger servers are down	Pas de connexion internet, ou tous les serveurs gratuits de bornes sont indisponibles	Keine Internetverbindung, oder alle kostenlosen Ladesäulen-Server sind ausgefallen	Sin conexión a internet, o todos los servidores gratuitos de cargadores están caídos	Ingen internettforbindelse, eller alle de gratis laderserverne er nede
 {0} of {1} free	{0} sur {1} libres	{0} von {1} frei	{0} de {1} libres	{0} av {1} ledige
 {0} free	{0} libres	{0} frei	{0} libres	{0} ledige
-Add a stop on the way	Ajouter un arrêt en chemin	Zwischenstopp hinzufügen	Añadir una parada en el camino	Legg til et stopp underveis
-Via	Via	Via	Vía	Via
-Remove this stop	Supprimer cet arrêt	Diesen Stopp entfernen	Quitar esta parada	Fjern dette stoppet
+Add a stop on the way	Ajouter un arrêt en chemin	Zwischenstopp hinzufügen	Añadir una parada en el camino	Legg til et stopp underveis	Aggiungi una tappa
+Via	Via	Via	Vía	Via	Tappa
+Remove this stop	Supprimer cet arrêt	Diesen Stopp entfernen	Quitar esta parada	Fjern dette stoppet	Rimuovi tappa
 Stay at {0}	Rester à {0}	Aufenthalt bei {0}	Quedarse en {0}	Bli på {0}
 Charge while you stay: {0} ({1} away)	Recharger pendant votre pause : {0} (à {1})	Während des Aufenthalts laden: {0} ({1} entfernt)	Cargar durante la parada: {0} (a {1})	Lad mens du er der: {0} ({1} unna)
 Charge there for {0} min	Recharger là-bas pendant {0} min	Dort {0} Min. laden	Cargar allí durante {0} min	Lad der i {0} min
@@ -821,11 +821,11 @@ leaves	départ	Abfahrt	sale	går
 wait	attente	Wartezeit	espera	venting
 Ferry times: Entur and Transitous where the operator publishes them, otherwise a typical wait is assumed.	Horaires des ferries : Entur et Transitous quand l'exploitant les publie, sinon une attente typique est supposée.	Fährzeiten: Entur und Transitous, wenn der Betreiber sie veröffentlicht, sonst wird eine typische Wartezeit angenommen.	Horarios de ferris: Entur y Transitous cuando el operador los publica; si no, se supone una espera típica.	Fergetider: Entur og Transitous der rederiet publiserer dem, ellers regnes en typisk ventetid.
 Leave	Départ	Abfahrt	Salida	Avreise
-Now	Maintenant	Jetzt	Ahora	Nå
-Leave at	Départ à	Abfahrt um	Salir a las	Reis kl.
-Tomorrow	Demain	Morgen	Mañana	I morgen
-That time has passed. Pick a later time or a later day.	Cette heure est passée. Choisissez une heure ou un jour plus tard.	Diese Zeit ist vorbei. Wähle eine spätere Uhrzeit oder einen späteren Tag.	Esa hora ya pasó. Elige una hora o un día posterior.	Det tidspunktet har passert. Velg et senere tidspunkt eller en senere dag.
-Set	Valider	Übernehmen	Aceptar	Bruk
+Now	Maintenant	Jetzt	Ahora	Nå	Ora
+Leave at	Départ à	Abfahrt um	Salir a las	Reis kl.	Parti alle
+Tomorrow	Demain	Morgen	Mañana	I morgen	Domani
+That time has passed. Pick a later time or a later day.	Cette heure est passée. Choisissez une heure ou un jour plus tard.	Diese Zeit ist vorbei. Wähle eine spätere Uhrzeit oder einen späteren Tag.	Esa hora ya pasó. Elige una hora o un día posterior.	Det tidspunktet har passert. Velg et senere tidspunkt eller en senere dag.	L’orario è già passato. Scegli un orario o un giorno successivo.
+Set	Valider	Übernehmen	Aceptar	Bruk	Imposta
 Fewest stops	Moins d'arrêts	Wenigste Stopps	Menos paradas	Færrest stopp
 Switched to the route with the fewest charging stops.	Itinéraire avec le moins d'arrêts de recharge choisi.	Zur Route mit den wenigsten Ladestopps gewechselt.	Se ha elegido la ruta con menos paradas de carga.	Byttet til ruta med færrest ladestopp.
 Dark mode	Mode sombre	Dunkelmodus	Modo oscuro	Mørk modus
@@ -892,7 +892,7 @@ at {0} (a typical home charger)	à {0} (une borne domestique typique)	mit {0} (e
 . The car isn't plugged in.	. La voiture n'est pas branchée.	. Das Auto ist nicht eingesteckt.	. El coche no está enchufado.	. Bilen er ikke koblet til.
 The car may stop earlier at its own daily limit.	La voiture peut s'arrêter plus tôt à sa propre limite quotidienne.	Das Auto kann früher an seinem eigenen Tageslimit stoppen.	El coche puede parar antes en su propio límite diario.	Bilen kan stoppe tidligere på sin egen daglige grense.
 Peugeot's servers are down or busy right now (error {0}). Your car is fine. LionFlow will try again in a minute.	Les serveurs de Peugeot sont en panne ou surchargés (erreur {0}). Votre voiture n'a rien. LionFlow réessaiera dans une minute.	Die Server von Peugeot sind gerade ausgefallen oder überlastet (Fehler {0}). Mit Ihrem Auto ist alles in Ordnung. LionFlow versucht es in einer Minute erneut.	Los servidores de Peugeot están caídos o saturados ahora mismo (error {0}). Tu coche está bien. LionFlow lo volverá a intentar en un minuto.	Peugeots servere er nede eller overbelastet akkurat nå (feil {0}). Bilen din er i orden. LionFlow prøver igjen om et minutt.
-Round trip	Aller-retour	Hin und zurück	Ida y vuelta	Tur/retur
+Round trip	Aller-retour	Hin und zurück	Ida y vuelta	Tur/retur	Andata e ritorno
 Drive back to the start afterwards	Revenir ensuite au point de départ	Danach zurück zum Start fahren	Volver después al punto de partida	Kjør tilbake til start etterpå
 Stay at the destination	Rester à destination	Aufenthalt am Ziel	Estancia en el destino	Opphold på målet
 Destination	Destination	Ziel	Destino	Mål
@@ -986,3 +986,87 @@ Arrive {0}	Arrivée {0}	Ankunft {0}	Llegada {0}	Fremme {0}
 About {0} % when you arrive	Environ {0} % à l'arrivée	Etwa {0} % bei Ankunft	Unos {0} % al llegar	Ca. {0} % når du er fremme
 Charge {0} min · {1} % → {2} %	Recharge {0} min · {1} % → {2} %	{0} min laden · {1} % → {2} %	Cargar {0} min · {1} % → {2} %	Lad {0} min · {1} % → {2} %
 Try again	Réessayer	Erneut versuchen	Reintentar	Prøv igjen
+Petrol					Benzina
+Diesel					Diesel
+LPG					GPL
+CNG					Metano
+Self-service					Self-service
+Attended					Servito
+Any service					Qualsiasi servizio
+Combustion					Termica
+Mild hybrid					Mild hybrid
+Full hybrid					Full hybrid
+Plug-in hybrid (fuel only)					Ibrida plug-in (solo carburante)
+Manual consumption					Consumo personalizzato
+Typical consumption					Consumo tipico
+Economy					Economica
+Balanced					Bilanciata
+Fast					Rapida
+Fuel trip planner					Planner viaggi a carburante
+Plan a fuel trip					Pianifica un viaggio a carburante
+Plan fuel trip					Calcola viaggio a carburante
+Fuel stations					Distributori
+Charging stations					Colonnine di ricarica
+Fuel station					Distributore
+Refresh fuel stations					Aggiorna distributori
+Updating fuel stations…					Aggiornamento dei distributori…
+Last fuel sync					Ultimo aggiornamento dei distributori
+Fuel station update failed. Tap to retry.					Aggiornamento dei distributori non riuscito. Tocca per riprovare.
+Update failed. Showing cached fuel stations.					Aggiornamento non riuscito. Sono visibili i distributori già scaricati.
+No fuel stations available					Nessun distributore disponibile
+Tap a fuel station for details					Tocca un distributore per vedere i dettagli
+Fuel data: Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0					Dati carburante del Ministero delle Imprese e del Made in Italy · Osservaprezzi Carburanti · IODL 2.0
+Routing the fuel trip…					Calcolo dell’itinerario…
+Checking fuel stations…					Verifica dei distributori…
+Recalculating fuel stops…					Ricalcolo delle soste…
+Fuel data unavailable. Refresh stations and try again.					Dati carburante non disponibili. Aggiorna i distributori e riprova.
+No compatible fuel stations found along this route.					Nessun distributore compatibile trovato lungo questo itinerario.
+No feasible fuel plan found. Check your fuel, reserve and detour limit.					Nessun piano fattibile trovato. Controlla carburante iniziale, riserva e deviazione massima.
+Could not calculate the road route. Check your connection and try again.					Impossibile calcolare il percorso stradale. Controlla la connessione e riprova.
+That change would make the fuel plan infeasible.					Con questa modifica il piano non rispetterebbe i vincoli di autonomia.
+Check departure, tank capacity, starting fuel and limits.					Controlla partenza, capacità del serbatoio, carburante iniziale e limiti.
+Petrol or diesel range only					Solo autonomia a benzina o diesel
+One way					Sola andata
+Leave now					Parti ora
+Tank capacity					Capacità del serbatoio
+Starting fuel					Carburante iniziale
+Starting level from the vehicle					Livello iniziale rilevato dal veicolo
+Starting level estimated from reported range					Livello iniziale stimato dall’autonomia dichiarata
+Consumption override					Consumo personalizzato
+Minimum reserve					Riserva minima
+Consumption safety margin					Margine di sicurezza sul consumo
+Maximum detour per stop					Deviazione massima per sosta
+Fuel trip					Viaggio a carburante
+Total distance					Distanza totale
+Driving time					Tempo di guida
+Estimated total time					Tempo totale stimato
+Estimated average consumption					Consumo medio stimato
+Fuel consumed					Carburante consumato
+Estimated value of fuel consumed					Valore stimato del carburante consumato
+Fuel to buy					Carburante da acquistare
+Estimated spend on refuelling					Spesa stimata per i rifornimenti
+Fuel stops					Soste per rifornimento
+Extra distance					Distanza aggiuntiva
+Extra time for fuel stops					Tempo aggiuntivo per le soste
+Fuel at arrival					Carburante all’arrivo
+No refuelling needed					Nessun rifornimento necessario
+Plan based on a limited set of road-verified stations.					Piano basato su un numero limitato di distributori verificati su strada.
+Position along the trip					Posizione lungo il viaggio
+Estimated arrival					Arrivo previsto
+Buy					Acquista
+Fuel after refuelling					Carburante alla ripartenza
+Unit price					Prezzo unitario
+Refuelling cost					Costo del rifornimento
+Road detour					Deviazione su strada
+Price reported					Prezzo comunicato il
+Edit fuel stop					Modifica sosta
+Edit trip					Modifica viaggio
+Reset fuel stops					Ripristina le soste
+Fixed purchase (optional)					Quantità fissa (facoltativa)
+Replace with a verified station					Sostituisci con un distributore verificato
+Lock fuel stop					Blocca sosta
+Price unavailable					Prezzo non disponibile
+Price may be outdated					Prezzo potenzialmente non aggiornato
+Type a place or address					Digita un luogo o un indirizzo
+Save vehicle fuel settings					Salva impostazioni carburante del veicolo
+Vehicle fuel settings saved					Impostazioni carburante del veicolo salvate

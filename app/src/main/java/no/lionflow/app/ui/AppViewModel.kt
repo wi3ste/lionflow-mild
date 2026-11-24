@@ -97,6 +97,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         no.lionflow.app.plan.Planner(viewModelScope, lf, { _ui.value.status }, { _ui.value.trips },
             { _ui.value.myLat?.let { la -> _ui.value.myLon?.let { lo -> la to lo } } })
     }
+    internal val fuelPlanner by lazy { no.lionflow.app.fuel.FuelPlanner(viewModelScope, lf) }
     private var ticker: Job? = null
     private val vehicleMetadataLock = Mutex()
     private val brandingAttempts = HashSet<Pair<String, String>>()
