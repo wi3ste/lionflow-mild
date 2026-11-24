@@ -32,6 +32,12 @@ jobs:
           fi
       - name: Build debug APK
         run: gradle :app:assembleDebug :wear:assembleDebug --stacktrace --no-daemon
+      - name: Verify Fuel Trip Planner APK certificate
+        if: github.ref_name == 'feature/fuel-trip-planner'
+        run: |
+          apksigner_path="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          "$apksigner_path" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee "$RUNNER_TEMP/fuel-apk-certificate.txt"
+          cat "$RUNNER_TEMP/fuel-apk-certificate.txt" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Fuel Trip Planner debug APK
         if: github.ref_name == 'feature/fuel-trip-planner'
         uses: actions/upload-artifact@v4
@@ -56,4 +62,12 @@ jobs:
           target: google_apis
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: gradle :app:connectedDebugAndroidTest --no-daemon || { adb logcat -d -s FuelMap FuelMapTest Mbgl MapLibre AndroidRuntime; find app/build/outputs/androidTest-results/connected/debug -name "TEST-*.xml" -exec cat {} +; exit 1; }
+          script: bash .github/scripts/fuel-instrumentation.sh
+      - name: Upload Fuel Management screenshots and test reports
+        if: always() && github.event_name == 'workflow_dispatch' && github.ref_name == 'feature/fuel-trip-planner'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LionFlow-fuel-management-review
+          path: |
+            fuel-review-shots/*.png
+            app/build/outputs/androidTest-results/connected/debug

@@ -19,6 +19,8 @@ LionFlow is an unofficial, open-source app for controlling your own Peugeot. It 
 | Update checks (GitHub version only) | Finding new versions | GitHub (`api.github.com`) |
 | Active-device count (GitHub version only, at most once a day) | Counting how many devices that installed LionFlow from GitHub are in use: the app downloads a tiny empty file (`ping.txt`) from the GitHub release, and GitHub's own download counter for that file is shown as a badge in the README. LionFlow sends no ID, no account or car details and nothing about your phone, and the developer receives no data, only the counter. Copies installed from Google Play don't do this. | GitHub (`github.com`) |
 
+Fuel favorites, refuel records, and saved or active fuel trips are kept on the device and included in backups you explicitly export. Route and access caches and raw fuel gauge observations stay in app storage outside those exports. A nearby road-distance check sends its selected reference point and station coordinates to OSRM only when requested. An external navigator receives the destinations you choose to open.
+
 No data is sold or shared for advertising. Nothing is backed up to the cloud by the app (Android backup is turned off).
 
 ## Deleting your data
