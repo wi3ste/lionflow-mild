@@ -37,6 +37,7 @@ internal data class FuelCatalogState(
     val snapshot: FuelSnapshot? = null,
     val refreshing: Boolean = false,
     val failed: Boolean = false,
+    val syncMillis: Long? = null,
 )
 
 internal class FuelCache(private val file: File) {
@@ -130,6 +131,7 @@ internal class FuelCatalog(
 
             attemptedAt = time
             current.value = FuelCatalogState(snapshot, refreshing = true)
+            val started = System.nanoTime()
             try {
                 val dataset = provider.load()
                 val previous = snapshot?.dataset
@@ -142,13 +144,13 @@ internal class FuelCatalog(
                 }
                 val next = FuelSnapshot(dataset, now())
                 cache.write(next)
-                current.value = FuelCatalogState(next)
+                current.value = FuelCatalogState(next, syncMillis = (System.nanoTime() - started) / 1_000_000)
             } catch (e: CancellationException) {
                 attemptedAt = null
                 current.value = FuelCatalogState(snapshot)
                 throw e
             } catch (_: Exception) {
-                current.value = FuelCatalogState(snapshot, failed = true)
+                current.value = FuelCatalogState(snapshot, failed = true, syncMillis = (System.nanoTime() - started) / 1_000_000)
             }
             current.value
         }

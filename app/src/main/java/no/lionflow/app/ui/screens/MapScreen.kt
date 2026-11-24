@@ -146,6 +146,11 @@ fun MapScreen(vm: AppViewModel, ui: UiState, s: AppSettings) {
     val fuelVisible = supportsFuel && (fuelLayer || fp.open)
     val activeFuelResult = fp.result?.takeIf { supportsFuel && fp.open && it.plan != null }
     val showFuelCatalog = fuelCatalogVisible(fuelVisible, activeFuelResult != null)
+    LaunchedEffect(catalog.syncMillis, catalog.snapshot?.syncedAt, catalog.failed) {
+        if (no.lionflow.app.BuildConfig.DEBUG) catalog.syncMillis?.let { elapsed ->
+            Log.d("FuelMap", "catalogSyncMs=$elapsed failed=${catalog.failed}")
+        }
+    }
     val priceClock = remember(ui.now / 3_600_000) { Instant.now() }
     LaunchedEffect(fuelVisible) { if (fuelVisible) fp.refresh() }
     LaunchedEffect(fuelVisible, catalog.snapshot, fp.grade, fp.service, L10n.lang, priceClock) {

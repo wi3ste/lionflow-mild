@@ -292,6 +292,7 @@ internal class FuelPlanner(
                 }
                 val remembered = if (cachedRoad == null) emptySet() else priorProjections.toSet()
                 val full = timed("shortlist") { shortlist(projections, searchRequest, required, now, extend) }
+                val retryUnavailable = extend && published?.plan == null && full.all { it.key in remembered }
                 val shortlist = if (cacheOnly) projections.filter { it.key in remembered } else {
                     val previous = projections.filter { it.key in remembered }
                     if (extend) previous + full.filter { it.key !in remembered }.take(16) else full
@@ -313,7 +314,8 @@ internal class FuelPlanner(
                 suspend fun wave(batch: List<FuelProjection>): Map<FuelStrategy, Double> {
                     busy = "Checking fuel stations… $checked/${shortlist.size}"
                     verified += timed("verify") {
-                        verify(batch, request, prediction, now, forward, rejected, cacheOnly, remembered) { probes++ }
+                        verify(batch, request, prediction, now, forward, rejected, cacheOnly,
+                            if (retryUnavailable) emptySet() else remembered) { probes++ }
                     }
                     checked += batch.size
                     checkedKeys += batch.map { it.key }
@@ -331,7 +333,7 @@ internal class FuelPlanner(
                             FuelSearchSummary(projections.size, verified.size, checked, quotes.minOrNull()?.let { it to quotes.max() },
                                 verified.count { it.offer.price != null && it.offer.fresh(now) },
                                 !direct && when {
-                                    cacheOnly && plan == null -> true
+                                    plan == null && (cacheOnly || "rate-limit" in rejected || "routing-unavailable" in rejected) -> true
                                     extend -> full.any { it.key !in checkedKeys }
                                     else -> projections.size > checkedKeys.size
                                 }), comparisons)
